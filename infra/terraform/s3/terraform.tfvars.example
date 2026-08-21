@@ -1,0 +1,6 @@
+aws_region        = "us-east-1"
+aws_profile       = "carematch-dev"
+environment       = "dev"
+project_name      = "carematch-data"
+force_destroy     = false
+raw_retention_days = 365

@@ -1,0 +1,40 @@
+name: Validate source data and infrastructure
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run generator tests
+        run: python -m unittest discover -s tests -v
+      - name: Generate full source data
+        run: python -m src.generate_healthcare_data --output data/generated
+      - name: Verify manifest exists
+        run: test -s data/generated/manifest.json
+
+  terraform:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.14.3
+      - name: Terraform format
+        run: terraform -chdir=infra/terraform/s3 fmt -check -recursive
+      - name: Terraform init without backend
+        run: terraform -chdir=infra/terraform/s3 init -backend=false
+      - name: Terraform validate
+        run: terraform -chdir=infra/terraform/s3 validate

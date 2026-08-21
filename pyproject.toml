@@ -1,0 +1,10 @@
+[project]
+name = "carematch-modern-data-stack"
+version = "0.1.0"
+description = "Synthetic healthcare staffing data and modern data-stack infrastructure"
+requires-python = ">=3.11"
+dependencies = []
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
