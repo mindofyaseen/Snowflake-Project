@@ -8,6 +8,8 @@ param(
 $ErrorActionPreference = 'Stop'
 $ProjectRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $TerraformDir = Join-Path $ProjectRoot 'infra\terraform\s3'
+$env:TF_CLI_CONFIG_FILE = Join-Path $ProjectRoot 'infra\terraform\terraform.rc'
+$env:TF_DATA_DIR = Join-Path $ProjectRoot '.terraform-data-s3'
 
 Push-Location $ProjectRoot
 try {

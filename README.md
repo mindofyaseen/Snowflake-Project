@@ -30,6 +30,8 @@ Configure a named AWS profile securely, then:
 
 The script generates data, runs tests, provisions the S3 landing bucket with Terraform, uploads source files, and verifies the remote manifest. It does not accept or write AWS credentials.
 
+See [AWS access setup](docs/AWS_ACCESS_SETUP.md) for the dedicated role/user policy and safe profile configuration.
+
 ## Repository layout
 
 ```text
