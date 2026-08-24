@@ -157,6 +157,7 @@ resource "aws_instance" "airflow" {
     repository_url  = var.repository_url
     repository_ref  = var.repository_ref
     compose_version = "v2.40.3"
+    buildx_version  = "v0.20.1"
   })
 
   depends_on = [
@@ -167,4 +168,3 @@ resource "aws_instance" "airflow" {
 
   tags = { Name = local.name }
 }
-
