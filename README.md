@@ -7,7 +7,7 @@ Synthetic operational sources -> Airflow on EC2 -> Amazon S3 -> Snowflake
 SaaS sources -> Fivetran -> Snowflake -> dbt -> Hightouch -> Salesforce/Slack
 ```
 
-The first milestone creates deterministic, privacy-safe source data and the secure Amazon S3 landing zone. Later milestones add Airflow, Snowflake, Fivetran, dbt, Hightouch, and downstream destinations.
+The current milestone creates deterministic, privacy-safe source data and a small-scale Airflow deployment on EC2 that uploads six source families to the secure Amazon S3 landing zone. Later milestones add Snowflake, Fivetran, dbt, Hightouch, and downstream destinations.
 
 ## Milestone 1: generate source data
 
@@ -32,6 +32,18 @@ The script generates data, runs tests, provisions the S3 landing bucket with Ter
 
 See [AWS access setup](docs/AWS_ACCESS_SETUP.md) for the dedicated role/user policy and safe profile configuration.
 
+## Milestone 2: EC2 Airflow to S3
+
+After the S3 stack is applied:
+
+```powershell
+.\scripts\deploy_airflow.ps1 -BucketName "YOUR_BUCKET" -Action plan
+.\scripts\deploy_airflow.ps1 -BucketName "YOUR_BUCKET" -Action apply
+```
+
+See [the EC2 Airflow runbook](docs/EC2_AIRFLOW_RUNBOOK.md) for SSM-only UI access,
+pipeline execution, and S3 verification.
+
 ## Repository layout
 
 ```text
@@ -39,6 +51,8 @@ src/                      synthetic source-data generator
 tests/                    integrity and reproducibility tests
 data/                     local generated data (ignored by Git)
 infra/terraform/s3/       secure S3 landing-zone infrastructure
+infra/terraform/ec2-airflow/ EC2, networking, IAM, and Airflow bootstrap
+airflow/                  pinned image, Compose stack, and six-source S3 DAG
 scripts/                  deployment and upload entry points
 docs/                     architecture and data documentation
 .github/workflows/        continuous validation

@@ -1,0 +1,6 @@
+aws_region     = "us-east-1"
+aws_profile    = "carematch-dev"
+environment    = "dev"
+s3_bucket_name = "replace-with-s3-terraform-output"
+instance_type  = "t3.large"
+

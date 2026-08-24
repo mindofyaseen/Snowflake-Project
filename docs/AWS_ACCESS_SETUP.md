@@ -10,6 +10,15 @@ Create a deployment identity that can obtain temporary credentials and attach th
 infra/iam/carematch-s3-bootstrap-policy.json
 ```
 
+For the EC2 Airflow milestone, also review and attach:
+
+```text
+infra/iam/carematch-ec2-airflow-bootstrap-policy.json
+```
+
+It grants the development network/instance operations plus management of only the
+named `carematch-dev-airflow` role and instance profile used by Terraform.
+
 Suggested role name:
 
 ```text
@@ -34,7 +43,7 @@ Requirements:
 
 - No AWS Console password unless a human must use the console.
 - No AdministratorAccess policy.
-- Attach only the supplied S3 bootstrap policy.
+- Attach the supplied S3 policy and, when deploying Airflow, the EC2 Airflow policy.
 - Create one access key for the local deployment profile.
 - Rotate or delete the key after replacing it with a role.
 

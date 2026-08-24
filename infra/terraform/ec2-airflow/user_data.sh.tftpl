@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+dnf install -y docker git openssl
+systemctl enable --now docker
+
+install -d -m 0755 /usr/local/lib/docker/cli-plugins
+curl --fail --location --retry 5 \
+  "https://github.com/docker/compose/releases/download/${compose_version}/docker-compose-linux-x86_64" \
+  --output /usr/local/lib/docker/cli-plugins/docker-compose
+chmod 0755 /usr/local/lib/docker/cli-plugins/docker-compose
+
+install -d -m 0755 /opt/carematch
+git clone --branch "${repository_ref}" --depth 1 "${repository_url}" /opt/carematch/project
+cd /opt/carematch/project
+
+AIRFLOW_ADMIN_PASSWORD="$$(openssl rand -hex 24)"
+POSTGRES_PASSWORD="$$(openssl rand -hex 24)"
+AIRFLOW_FERNET_KEY="$$(openssl rand -base64 32 | tr '+/' '-_' | tr -d '\n')"
+
+cat > airflow/.env <<ENVIRONMENT
+CAREMATCH_S3_BUCKET=${bucket_name}
+AWS_DEFAULT_REGION=${aws_region}
+AIRFLOW_ADMIN_PASSWORD=$${AIRFLOW_ADMIN_PASSWORD}
+AIRFLOW_FERNET_KEY=$${AIRFLOW_FERNET_KEY}
+POSTGRES_PASSWORD=$${POSTGRES_PASSWORD}
+ENVIRONMENT
+chmod 0600 airflow/.env
+
+aws ssm put-parameter \
+  --region "${aws_region}" \
+  --name "${password_path}" \
+  --type SecureString \
+  --value "$${AIRFLOW_ADMIN_PASSWORD}" \
+  --overwrite
+
+docker compose --env-file airflow/.env -f airflow/docker-compose.ec2.yaml build
+docker compose --env-file airflow/.env -f airflow/docker-compose.ec2.yaml up airflow-init
+docker compose --env-file airflow/.env -f airflow/docker-compose.ec2.yaml up -d

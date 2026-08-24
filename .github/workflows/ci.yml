@@ -33,8 +33,20 @@ jobs:
         with:
           terraform_version: 1.14.3
       - name: Terraform format
-        run: terraform -chdir=infra/terraform/s3 fmt -check -recursive
-      - name: Terraform init without backend
-        run: terraform -chdir=infra/terraform/s3 init -backend=false
-      - name: Terraform validate
-        run: terraform -chdir=infra/terraform/s3 validate
+        run: terraform fmt -check -recursive infra/terraform
+      - name: Validate S3 Terraform
+        run: |
+          terraform -chdir=infra/terraform/s3 init -backend=false
+          terraform -chdir=infra/terraform/s3 validate
+      - name: Validate EC2 Airflow Terraform
+        run: |
+          terraform -chdir=infra/terraform/ec2-airflow init -backend=false
+          terraform -chdir=infra/terraform/ec2-airflow validate
+
+  compose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Render Airflow Compose configuration
+        run: docker compose --env-file airflow/.env.example -f airflow/docker-compose.ec2.yaml config --quiet
