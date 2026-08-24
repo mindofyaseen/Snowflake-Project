@@ -1,0 +1,2 @@
+snowflake_iam_user_arn = "arn:aws:iam::<snowflake-account-id>:user/<snowflake-user>"
+snowflake_external_id  = "<value from DESC INTEGRATION CAREMATCH_S3_INT>"

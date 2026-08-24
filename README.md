@@ -7,7 +7,7 @@ Synthetic operational sources -> Airflow on EC2 -> Amazon S3 -> Snowflake
 SaaS sources -> Fivetran -> Snowflake -> dbt -> Hightouch -> Salesforce/Slack
 ```
 
-The current milestone creates deterministic, privacy-safe source data and a small-scale Airflow deployment on EC2 that uploads six source families to the secure Amazon S3 landing zone. Later milestones add Snowflake, Fivetran, dbt, Hightouch, and downstream destinations.
+The deployed small-scale pipeline now covers deterministic synthetic sources, Airflow on EC2, a secure S3 landing zone, Snowflake ingestion, and dbt transformation models. The next milestone connects the governed activation model to Hightouch and a downstream destination.
 
 ## Milestone 1: generate source data
 
@@ -44,6 +44,19 @@ After the S3 stack is applied:
 See [the EC2 Airflow runbook](docs/EC2_AIRFLOW_RUNBOOK.md) for SSM-only UI access,
 pipeline execution, and S3 verification.
 
+## Milestone 3: S3 to Snowflake and dbt
+
+The deployed Snowflake layer contains:
+
+- `CAREMATCH.RAW`: 11 source tables loaded from the S3 external stage.
+- `CAREMATCH.STAGING`: five cleaned dbt views.
+- `CAREMATCH.ANALYTICS`: nurse, shift, marketing, market, and activation models.
+- `CAREMATCH.ANALYTICS.AUDIENCE_AT_RISK_NURSES`: consent-safe Hightouch source model.
+
+Terraform creates the AWS role trusted by Snowflake and restricts it to read-only access under the bucket's `raw/` prefix. Snowflake SQL bootstraps the warehouse, RBAC, storage integration, stage, source tables, and validation queries. The dbt project is under `dbt/`.
+
+See [the Snowflake and dbt runbook](docs/SNOWFLAKE_DBT_RUNBOOK.md) for deployed row counts, rerun order, tests, and secure local dbt configuration.
+
 ## Repository layout
 
 ```text
@@ -52,7 +65,10 @@ tests/                    integrity and reproducibility tests
 data/                     local generated data (ignored by Git)
 infra/terraform/s3/       secure S3 landing-zone infrastructure
 infra/terraform/ec2-airflow/ EC2, networking, IAM, and Airflow bootstrap
+infra/terraform/snowflake-s3-integration/ scoped Snowflake IAM trust and S3 read policy
 airflow/                  pinned image, Compose stack, and six-source S3 DAG
+snowflake/sql/            idempotent platform, ingestion, transformation, and QA SQL
+dbt/                      staging, analytics, activation models, and tests
 scripts/                  deployment and upload entry points
 docs/                     architecture and data documentation
 .github/workflows/        continuous validation
@@ -61,6 +77,7 @@ docs/                     architecture and data documentation
 ## Security rules
 
 - Never commit AWS credentials, Snowflake private keys, OAuth tokens, `.env` files, or Terraform state.
+- Pass Snowflake secrets through the environment or an approved secret manager; never write them into `profiles.yml`.
 - Never use the AWS root user for deployment.
 - Use a dedicated named AWS profile or an IAM Identity Center/assumable role session.
 - Synthetic identities use reserved `.example` email domains and contain no real patient or workforce data.

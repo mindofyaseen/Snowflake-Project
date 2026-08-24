@@ -21,3 +21,8 @@ crash.log
 *.key
 kaggle.json
 access_token
+
+dbt/profiles.yml
+dbt/target/
+dbt/logs/
+dbt/dbt_packages/

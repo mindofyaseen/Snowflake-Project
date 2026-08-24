@@ -1,0 +1,14 @@
+carematch:
+  target: dev
+  outputs:
+    dev:
+      type: snowflake
+      account: AGBKFYW-JO98858
+      user: YASEEN
+      password: "{{ env_var('SNOWFLAKE_PASSWORD') }}"
+      role: CAREMATCH_TRANSFORMER
+      database: CAREMATCH
+      warehouse: CAREMATCH_INGEST_WH
+      schema: ANALYTICS
+      threads: 4
+      client_session_keep_alive: false

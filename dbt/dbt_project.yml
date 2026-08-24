@@ -1,0 +1,20 @@
+name: carematch
+version: 1.0.0
+config-version: 2
+
+profile: carematch
+
+model-paths: ["models"]
+test-paths: ["tests"]
+macro-paths: ["macros"]
+target-path: target
+clean-targets: ["target", "dbt_packages", "logs"]
+
+models:
+  carematch:
+    staging:
+      +schema: STAGING
+      +materialized: view
+    marts:
+      +schema: ANALYTICS
+      +materialized: table

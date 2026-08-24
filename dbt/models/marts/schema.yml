@@ -1,0 +1,24 @@
+version: 2
+
+models:
+  - name: dim_nurses
+    description: One governed nurse profile for analytics and activation.
+    columns:
+      - name: nurse_id
+        tests: [not_null, unique]
+      - name: email
+        tests: [not_null]
+  - name: fct_shift_performance
+    description: Shift-level applications, assignments, fill, and completion outcomes.
+    columns:
+      - name: shift_id
+        tests: [not_null, unique]
+  - name: mart_marketing_efficiency
+    description: Appcast campaign spend and acquisition efficiency.
+  - name: mart_market_supply_demand
+    description: City and specialty supply-demand gaps for operations.
+  - name: audience_at_risk_nurses
+    description: Consent-safe Hightouch audience for nurse re-engagement.
+    columns:
+      - name: nurse_id
+        tests: [not_null, unique]

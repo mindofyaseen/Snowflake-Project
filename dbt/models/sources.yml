@@ -1,0 +1,33 @@
+version: 2
+
+sources:
+  - name: raw
+    database: CAREMATCH
+    schema: RAW
+    tables:
+      - name: nurses
+        columns:
+          - name: nurse_id
+            tests: [not_null, unique]
+      - name: facilities
+        columns:
+          - name: facility_id
+            tests: [not_null, unique]
+      - name: shifts
+        columns:
+          - name: shift_id
+            tests: [not_null, unique]
+      - name: applications
+        columns:
+          - name: application_id
+            tests: [not_null, unique]
+      - name: assignments
+        columns:
+          - name: assignment_id
+            tests: [not_null, unique]
+      - name: health_screenings
+      - name: market_conditions
+      - name: nurse_scores
+      - name: campaign_performance
+      - name: manual_overrides
+      - name: app_events
