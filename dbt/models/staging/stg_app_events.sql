@@ -6,3 +6,7 @@ select
   payload:platform::varchar as platform,
   payload:session_id::varchar as session_id
 from {{ source('raw', 'app_events') }}
+qualify row_number() over (
+  partition by payload:event_id::varchar
+  order by payload:event_timestamp::timestamp_tz desc
+) = 1

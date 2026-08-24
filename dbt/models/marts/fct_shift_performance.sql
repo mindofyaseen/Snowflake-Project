@@ -16,6 +16,14 @@ assignment_rollup as (
     avg(assigned_hourly_rate) as average_assigned_hourly_rate
   from {{ ref('stg_assignments') }}
   group by 1
+),
+latest_facility as (
+  select *
+  from {{ source('raw', 'facilities') }}
+  qualify row_number() over (
+    partition by facility_id
+    order by record_updated_at desc
+  ) = 1
 )
 select
   s.*,
@@ -32,6 +40,6 @@ select
   iff(x.assignment_count > 0, true, false) as was_filled,
   iff(x.completed_assignment_count > 0, true, false) as was_completed
 from {{ ref('stg_shifts') }} s
-left join {{ source('raw', 'facilities') }} f using (facility_id)
+left join latest_facility f using (facility_id)
 left join application_rollup a using (shift_id)
 left join assignment_rollup x using (shift_id)

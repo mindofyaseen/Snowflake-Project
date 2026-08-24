@@ -45,7 +45,12 @@ def _bucket_name() -> str:
 def synthetic_sources_to_s3():
     @task
     def generate_files(**context) -> dict:
-        run_date: date = context["data_interval_end"].date()
+        configured_load_date = (context.get("dag_run").conf or {}).get("load_date")
+        run_date: date = (
+            date.fromisoformat(configured_load_date)
+            if configured_load_date
+            else context["data_interval_end"].date()
+        )
         run_root = GENERATED_ROOT / run_date.isoformat()
         manifest = generate(
             root=run_root,

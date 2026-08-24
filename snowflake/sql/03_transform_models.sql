@@ -21,7 +21,11 @@ SELECT
   notification_opt_in,
   record_updated_at,
   cancelled_shifts_lifetime / NULLIF(completed_shifts_lifetime + cancelled_shifts_lifetime, 0) AS lifetime_cancel_rate
-FROM RAW.NURSES;
+FROM RAW.NURSES
+QUALIFY ROW_NUMBER() OVER (
+  PARTITION BY nurse_id
+  ORDER BY record_updated_at DESC
+) = 1;
 
 CREATE OR REPLACE VIEW STAGING.STG_SHIFTS AS
 SELECT
@@ -37,7 +41,11 @@ SELECT
   LOWER(status) AS shift_status,
   posted_at,
   hours * base_hourly_rate AS estimated_shift_value
-FROM RAW.SHIFTS;
+FROM RAW.SHIFTS
+QUALIFY ROW_NUMBER() OVER (
+  PARTITION BY shift_id
+  ORDER BY posted_at DESC
+) = 1;
 
 CREATE OR REPLACE VIEW STAGING.STG_ASSIGNMENTS AS
 SELECT
@@ -47,7 +55,11 @@ SELECT
   assigned_hourly_rate,
   LOWER(assignment_outcome) AS assignment_outcome,
   LOWER(cancelled_by) AS cancelled_by
-FROM RAW.ASSIGNMENTS;
+FROM RAW.ASSIGNMENTS
+QUALIFY ROW_NUMBER() OVER (
+  PARTITION BY assignment_id
+  ORDER BY assignment_id
+) = 1;
 
 CREATE OR REPLACE VIEW STAGING.STG_APPLICATIONS AS
 SELECT
@@ -57,7 +69,11 @@ SELECT
   LOWER(application_status) AS application_status,
   applied_at,
   LOWER(source_channel) AS source_channel
-FROM RAW.APPLICATIONS;
+FROM RAW.APPLICATIONS
+QUALIFY ROW_NUMBER() OVER (
+  PARTITION BY application_id
+  ORDER BY applied_at DESC
+) = 1;
 
 CREATE OR REPLACE VIEW STAGING.STG_APP_EVENTS AS
 SELECT
@@ -67,7 +83,11 @@ SELECT
   payload:nurse_id::VARCHAR AS nurse_id,
   payload:platform::VARCHAR AS platform,
   payload:session_id::VARCHAR AS session_id
-FROM RAW.APP_EVENTS;
+FROM RAW.APP_EVENTS
+QUALIFY ROW_NUMBER() OVER (
+  PARTITION BY payload:event_id::VARCHAR
+  ORDER BY payload:event_timestamp::TIMESTAMP_TZ DESC
+) = 1;
 
 CREATE OR REPLACE TABLE ANALYTICS.DIM_NURSES AS
 WITH latest_score AS (
@@ -122,6 +142,14 @@ assignment_rollup AS (
     AVG(assigned_hourly_rate) AS average_assigned_hourly_rate
   FROM STAGING.STG_ASSIGNMENTS
   GROUP BY 1
+),
+latest_facility AS (
+  SELECT *
+  FROM RAW.FACILITIES
+  QUALIFY ROW_NUMBER() OVER (
+    PARTITION BY facility_id
+    ORDER BY record_updated_at DESC
+  ) = 1
 )
 SELECT
   s.*,
@@ -138,7 +166,7 @@ SELECT
   IFF(x.assignment_count > 0, TRUE, FALSE) AS was_filled,
   IFF(x.completed_assignment_count > 0, TRUE, FALSE) AS was_completed
 FROM STAGING.STG_SHIFTS s
-LEFT JOIN RAW.FACILITIES f USING (facility_id)
+LEFT JOIN latest_facility f USING (facility_id)
 LEFT JOIN application_rollup a USING (shift_id)
 LEFT JOIN assignment_rollup x USING (shift_id);
 

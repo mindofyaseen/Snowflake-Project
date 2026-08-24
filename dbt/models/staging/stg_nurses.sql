@@ -14,3 +14,7 @@ select
   record_updated_at,
   cancelled_shifts_lifetime / nullif(completed_shifts_lifetime + cancelled_shifts_lifetime, 0) as lifetime_cancel_rate
 from {{ source('raw', 'nurses') }}
+qualify row_number() over (
+  partition by nurse_id
+  order by record_updated_at desc
+) = 1

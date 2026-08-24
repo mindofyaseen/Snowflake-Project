@@ -6,3 +6,7 @@ select
   applied_at,
   lower(source_channel) as source_channel
 from {{ source('raw', 'applications') }}
+qualify row_number() over (
+  partition by application_id
+  order by applied_at desc
+) = 1
