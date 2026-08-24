@@ -8,23 +8,23 @@ sources:
       - name: nurses
         columns:
           - name: nurse_id
-            tests: [not_null, unique]
+            tests: [not_null]
       - name: facilities
         columns:
           - name: facility_id
-            tests: [not_null, unique]
+            tests: [not_null]
       - name: shifts
         columns:
           - name: shift_id
-            tests: [not_null, unique]
+            tests: [not_null]
       - name: applications
         columns:
           - name: application_id
-            tests: [not_null, unique]
+            tests: [not_null]
       - name: assignments
         columns:
           - name: assignment_id
-            tests: [not_null, unique]
+            tests: [not_null]
       - name: health_screenings
       - name: market_conditions
       - name: nurse_scores

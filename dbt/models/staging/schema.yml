@@ -1,0 +1,19 @@
+version: 2
+
+models:
+  - name: stg_nurses
+    columns:
+      - name: nurse_id
+        tests: [not_null, unique]
+  - name: stg_shifts
+    columns:
+      - name: shift_id
+        tests: [not_null, unique]
+  - name: stg_applications
+    columns:
+      - name: application_id
+        tests: [not_null, unique]
+  - name: stg_assignments
+    columns:
+      - name: assignment_id
+        tests: [not_null, unique]

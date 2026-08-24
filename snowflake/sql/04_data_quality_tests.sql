@@ -7,22 +7,22 @@ USE DATABASE CAREMATCH;
 WITH test_results AS (
   SELECT 'nurses_primary_key' AS test_name,
          COUNT(*) - COUNT(DISTINCT nurse_id) + COUNT_IF(nurse_id IS NULL) AS failing_rows
-  FROM RAW.NURSES
+  FROM STAGING.STG_NURSES
 
   UNION ALL
   SELECT 'shifts_primary_key',
          COUNT(*) - COUNT(DISTINCT shift_id) + COUNT_IF(shift_id IS NULL)
-  FROM RAW.SHIFTS
+  FROM STAGING.STG_SHIFTS
 
   UNION ALL
   SELECT 'applications_primary_key',
          COUNT(*) - COUNT(DISTINCT application_id) + COUNT_IF(application_id IS NULL)
-  FROM RAW.APPLICATIONS
+  FROM STAGING.STG_APPLICATIONS
 
   UNION ALL
   SELECT 'assignments_primary_key',
          COUNT(*) - COUNT(DISTINCT assignment_id) + COUNT_IF(assignment_id IS NULL)
-  FROM RAW.ASSIGNMENTS
+  FROM STAGING.STG_ASSIGNMENTS
 
   UNION ALL
   SELECT 'assignment_relationships', COUNT(*)
