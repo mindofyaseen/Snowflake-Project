@@ -57,6 +57,8 @@ Terraform creates the AWS role trusted by Snowflake and restricts it to read-onl
 
 See [the Snowflake and dbt runbook](docs/SNOWFLAKE_DBT_RUNBOOK.md) for deployed row counts, rerun order, tests, and secure local dbt configuration.
 
+The live two-batch proof, including zero-row COPY rerun and post-deduplication QA, is recorded in [the incremental verification report](docs/INCREMENTAL_VERIFICATION_2026-08-24.md).
+
 ## Repository layout
 
 ```text
