@@ -50,6 +50,19 @@ A Marketo connector draft was created with destination schema `marketo`. Final t
 
 The connector is configured to use `FIVETRAN_WAREHOUSE` and defaults to full historical sync. Incremental sync is managed by Fivetran after the initial load.
 
+## Additional Fivetran connector drafts
+
+The Fivetran `Connections` page now contains four Snowflake-bound application connector drafts, all targeting the connected `Warehouse` destination:
+
+| Connection | Destination schema | Current state | Required next action |
+|---|---|---|---|
+| `marketo` | `marketo` | Incomplete | Supply Marketo Admin REST endpoint, identity URL, client ID, and client secret, then Save & Test |
+| `pendo` | `pendo` | Incomplete | Supply a Pendo integration key (or enable/configure Pendo Data Sync), verify it, then Save & Test |
+| `salesforce` | `salesforce` | Incomplete | Complete Salesforce OAuth authorization, then Save & Test |
+| `survey_monkey` | `survey_monkey` | Incomplete | Authorize Fivetran to read owned/shared surveys; an active SurveyMonkey subscription is required |
+
+`fivetran_metadata` is present but paused. No application connector has started an initial sync, so the Fivetran trial has not been activated by a completed initial sync and no application rows have landed in `FIVETRAN_LANDING` yet.
+
 ## Hightouch source result
 
 The Hightouch source `CareMatch Snowflake` is connected through RSA key-pair authentication. Hightouch reported **All tests passed** for:
@@ -59,4 +72,15 @@ The Hightouch source `CareMatch Snowflake` is connected through RSA key-pair aut
 3. Verify permission to write to the planner schema
 4. Verify permission to write to the audit schema
 
-The private key was uploaded only to Hightouch and remains excluded from Git. Slack is selected as the activation destination and is ready at the OAuth authorization step. After Slack authorization, create the audience model with primary key `NURSE_ID`, select a dedicated demo channel, and run the first sync.
+The private key was uploaded only to Hightouch and remains excluded from Git. Slack is selected as the activation destination and is waiting on the final workspace OAuth `Allow` action. The consent screen is scoped to the `IntelyCare` workspace and requests permission to view channel/workspace/user information and to send messages, files, and reactions. This persistent authorization must be explicitly approved by the account owner.
+
+After Slack authorization:
+
+1. Finalize the Hightouch Slack destination.
+2. Create a model from `CAREMATCH.ANALYTICS.AUDIENCE_AT_RISK_NURSES` with primary key `NURSE_ID`.
+3. Configure the first sync to the dedicated Slack demo channel.
+4. Run and verify an initial sync, then verify an incremental update.
+
+## Completion boundary
+
+The production-style core pipeline (EC2/Airflow -> S3 -> Snowflake -> dbt) and both Snowflake SaaS service connections are complete. The remaining work is third-party account authorization or product-specific credential/configuration work; it cannot be completed safely or truthfully without the account owner's OAuth approval and, for Marketo/Pendo, subscription-level API capabilities.
