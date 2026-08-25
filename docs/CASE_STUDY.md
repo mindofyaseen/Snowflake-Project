@@ -66,7 +66,7 @@ The S3 landing zone blocks public access, enforces TLS, enables versioning, and 
 
 Snowflake uses a scoped AWS storage integration with read-only access to the bucket's `raw/` prefix. The `CAREMATCH.RAW` layer contains 11 source tables. COPY operations preserve batch metadata and can be rerun without duplicating files.
 
-A live two-batch verification loaded 40,168 raw rows. Rerunning the same COPY operations added zero rows, proving file-level incremental behavior.
+A live three-batch verification loaded 60,290 raw rows. The final controlled backfill added exactly 20,122 rows from a previously unseen S3 partition. Earlier identical COPY reruns added zero rows, proving file-level incremental behavior.
 
 ### dbt transformation
 
@@ -74,7 +74,7 @@ dbt separates reusable cleanup logic from business models:
 
 - `CAREMATCH.STAGING`: five views for typed, standardized source data.
 - `CAREMATCH.ANALYTICS`: five materialized analytics tables.
-- `AUDIENCE_AT_RISK_NURSES`: a consent-safe activation table with 295 eligible nurses in the verified run.
+- `AUDIENCE_AT_RISK_NURSES`: a consent-safe activation table with 286 eligible nurses in the final verified run.
 
 The marts cover nurse dimensions, shift performance, marketing efficiency, market supply-demand, and activation. Seven automated data-quality checks passed, including relationship tests, uniqueness expectations, and activation-policy assertions.
 
@@ -87,7 +87,7 @@ Snowflake service accounts use RSA key-pair authentication and dedicated least-p
 
 Private keys stay in the local, Git-ignored `.secrets/` directory. No passwords, private keys, OAuth tokens, or Terraform state are committed.
 
-The selected activation destination is **Slack**, producing the primary path `Snowflake/dbt -> Hightouch -> Slack`. The selected Fivetran source is **Marketo**, producing the managed-ingestion path `Marketo -> Fivetran -> FIVETRAN_LANDING`. OneDrive remains an optional secondary export rather than a dependency of the main demonstration.
+The selected activation destination is **Slack**, producing the primary path `Snowflake/dbt -> Hightouch -> Slack`. The selected Fivetran source is **Marketo**, producing the managed-ingestion path `Marketo -> Fivetran -> FIVETRAN_LANDING`. OneDrive remains an optional secondary export rather than a dependency of the main demonstration. Slack delivery requires workspace OAuth approval, and the Marketo initial sync requires four Marketo Admin API fields; neither external data movement is claimed before those account-owned steps succeed.
 
 ## Incremental-loading design
 
@@ -106,16 +106,18 @@ The selected activation destination is **Slack**, producing the primary path `Sn
 | Check | Result |
 |---|---:|
 | Snowflake RAW tables | 11 |
-| Verified RAW rows | 40,168 |
+| Verified RAW rows | 60,290 |
 | Duplicate rows added by COPY rerun | 0 |
 | dbt staging views | 5 |
 | dbt analytics tables | 5 |
 | dbt/data-quality checks | 7/7 passed |
-| Consent-safe at-risk audience | 295 rows |
+| Consent-safe at-risk audience | 286 rows |
 | Fivetran Snowflake destination tests | 6/6 passed |
 | Hightouch Snowflake source tests | 4/4 passed |
 
 The live SaaS connection evidence and remaining account-authorization fields are recorded in [the SaaS integration verification report](SAAS_INTEGRATION_VERIFICATION_2026-08-25.md).
+
+The final three-batch execution, model counts, and external authorization boundary are recorded in [the final verification report](FINAL_VERIFICATION_2026-08-25.md).
 
 ## Operational value
 
