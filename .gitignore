@@ -21,6 +21,7 @@ crash.log
 *.key
 kaggle.json
 access_token
+.secrets/
 
 dbt/profiles.yml
 dbt/target/

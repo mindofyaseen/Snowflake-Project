@@ -7,7 +7,9 @@ Synthetic operational sources -> Airflow on EC2 -> Amazon S3 -> Snowflake
 SaaS sources -> Fivetran -> Snowflake -> dbt -> Hightouch -> Salesforce/Slack
 ```
 
-The deployed small-scale pipeline now covers deterministic synthetic sources, Airflow on EC2, a secure S3 landing zone, Snowflake ingestion, and dbt transformation models. The next milestone connects the governed activation model to Hightouch and a downstream destination.
+The deployed small-scale pipeline covers deterministic synthetic sources, Airflow on EC2, a secure S3 landing zone, Snowflake ingestion, dbt transformation models, and least-privilege service identities for Hightouch and Fivetran.
+
+The full business/technical narrative and demo sequence are documented in [the case study](docs/CASE_STUDY.md). Hightouch and Fivetran connection settings are recorded in [the SaaS integrations runbook](docs/SAAS_INTEGRATIONS_RUNBOOK.md).
 
 ## Milestone 1: generate source data
 
@@ -75,6 +77,16 @@ scripts/                  deployment and upload entry points
 docs/                     architecture and data documentation
 .github/workflows/        continuous validation
 ```
+
+## Milestone 4: Hightouch and Fivetran
+
+Generate local RSA keys and apply the idempotent Snowflake integration SQL before configuring the two SaaS applications:
+
+```powershell
+.\scripts\generate_service_keys.ps1
+```
+
+Then render and run `snowflake/sql/05_service_integrations.sql` with the generated public keys. Private keys must remain under `.secrets/` and are supplied only to the corresponding SaaS connection form. See [the integrations runbook](docs/SAAS_INTEGRATIONS_RUNBOOK.md) for the exact settings and verification queries.
 
 ## Security rules
 
