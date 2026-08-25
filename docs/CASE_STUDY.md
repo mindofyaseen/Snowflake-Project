@@ -87,6 +87,8 @@ Snowflake service accounts use RSA key-pair authentication and dedicated least-p
 
 Private keys stay in the local, Git-ignored `.secrets/` directory. No passwords, private keys, OAuth tokens, or Terraform state are committed.
 
+The selected activation destination is **Slack**, producing the primary path `Snowflake/dbt -> Hightouch -> Slack`. The selected Fivetran source is **Marketo**, producing the managed-ingestion path `Marketo -> Fivetran -> FIVETRAN_LANDING`. OneDrive remains an optional secondary export rather than a dependency of the main demonstration.
+
 ## Incremental-loading design
 
 | Layer | Incremental mechanism | Duplicate protection |
@@ -110,6 +112,9 @@ Private keys stay in the local, Git-ignored `.secrets/` directory. No passwords,
 | dbt analytics tables | 5 |
 | dbt/data-quality checks | 7/7 passed |
 | Consent-safe at-risk audience | 295 rows |
+| Fivetran Snowflake destination tests | 6/6 passed |
+
+The live SaaS connection evidence and remaining account-authorization fields are recorded in [the SaaS integration verification report](SAAS_INTEGRATION_VERIFICATION_2026-08-25.md).
 
 ## Operational value
 
@@ -129,4 +134,3 @@ The platform creates one governed analytics layer for staffing, marketing, and a
 ## Reproducibility
 
 Infrastructure definitions, the generator, Airflow DAG, Snowflake SQL, dbt models, tests, and runbooks are version controlled in this repository. Start with the root README, then use the EC2/Airflow, Snowflake/dbt, and incremental-verification runbooks under `docs/`.
-

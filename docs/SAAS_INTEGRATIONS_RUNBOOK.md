@@ -25,7 +25,7 @@ Use the following connection settings:
 | Authentication | RSA key pair |
 | Private key file | `.secrets/hightouch_rsa_key.p8` |
 
-Create a model from `CAREMATCH.ANALYTICS.AUDIENCE_AT_RISK_NURSES` and set `NURSE_ID` as the primary key. Map only the fields approved for the selected downstream destination.
+Create a model from `CAREMATCH.ANALYTICS.AUDIENCE_AT_RISK_NURSES` and set `NURSE_ID` as the primary key. The selected downstream destination is Slack. Map only the approved audience fields to a dedicated demo channel.
 
 ## Fivetran destination
 
@@ -45,7 +45,7 @@ Use the following destination settings:
 | Storage for unstructured files | Internal |
 | Default warehouse | `FIVETRAN_WAREHOUSE` |
 
-After `Save & Test` succeeds, connect one authorized SaaS source (SurveyMonkey, Marketo, or Pendo for the target architecture), select the minimum required schemas/tables, and run its initial sync. Verify that the connector creates its schema under `FIVETRAN_LANDING`, then rerun to demonstrate cursor-based incremental loading.
+The selected SaaS source is Marketo. After `Save & Test` succeeds, provide the Marketo REST endpoint, identity endpoint, client ID, and client secret, select the minimum required objects, and run its initial sync. Verify that the connector creates the `marketo` schema under `FIVETRAN_LANDING`, then rerun to demonstrate cursor-based incremental loading.
 
 ## Verification queries
 
@@ -63,4 +63,3 @@ SHOW SCHEMAS IN DATABASE FIVETRAN_LANDING;
 SELECT COUNT(*) AS activation_rows
 FROM CAREMATCH.ANALYTICS.AUDIENCE_AT_RISK_NURSES;
 ```
-

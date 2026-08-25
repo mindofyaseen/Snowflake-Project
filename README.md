@@ -9,7 +9,7 @@ SaaS sources -> Fivetran -> Snowflake -> dbt -> Hightouch -> Salesforce/Slack
 
 The deployed small-scale pipeline covers deterministic synthetic sources, Airflow on EC2, a secure S3 landing zone, Snowflake ingestion, dbt transformation models, and least-privilege service identities for Hightouch and Fivetran.
 
-The full business/technical narrative and demo sequence are documented in [the case study](docs/CASE_STUDY.md). Hightouch and Fivetran connection settings are recorded in [the SaaS integrations runbook](docs/SAAS_INTEGRATIONS_RUNBOOK.md).
+The full business/technical narrative and demo sequence are documented in [the case study](docs/CASE_STUDY.md). Hightouch and Fivetran connection settings are recorded in [the SaaS integrations runbook](docs/SAAS_INTEGRATIONS_RUNBOOK.md), with live connection evidence in [the SaaS verification report](docs/SAAS_INTEGRATION_VERIFICATION_2026-08-25.md).
 
 ## Milestone 1: generate source data
 
