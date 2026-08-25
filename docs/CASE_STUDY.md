@@ -113,6 +113,7 @@ The selected activation destination is **Slack**, producing the primary path `Sn
 | dbt/data-quality checks | 7/7 passed |
 | Consent-safe at-risk audience | 295 rows |
 | Fivetran Snowflake destination tests | 6/6 passed |
+| Hightouch Snowflake source tests | 4/4 passed |
 
 The live SaaS connection evidence and remaining account-authorization fields are recorded in [the SaaS integration verification report](SAAS_INTEGRATION_VERIFICATION_2026-08-25.md).
 

@@ -50,7 +50,13 @@ A Marketo connector draft was created with destination schema `marketo`. Final t
 
 The connector is configured to use `FIVETRAN_WAREHOUSE` and defaults to full historical sync. Incremental sync is managed by Fivetran after the initial load.
 
-## Hightouch and Slack
+## Hightouch source result
 
-The Snowflake account, warehouse, database, service user, and role were entered into the Hightouch Snowflake source form. The final RSA private-key upload requires Chrome extension permission to access local file URLs. After that browser permission is enabled, complete the source test, create the audience model with primary key `NURSE_ID`, authorize Slack, and run the first sync.
+The Hightouch source `CareMatch Snowflake` is connected through RSA key-pair authentication. Hightouch reported **All tests passed** for:
 
+1. Validate Snowflake credentials
+2. Verify permission to list schemas and tables
+3. Verify permission to write to the planner schema
+4. Verify permission to write to the audit schema
+
+The private key was uploaded only to Hightouch and remains excluded from Git. Slack is selected as the activation destination and is ready at the OAuth authorization step. After Slack authorization, create the audience model with primary key `NURSE_ID`, select a dedicated demo channel, and run the first sync.
