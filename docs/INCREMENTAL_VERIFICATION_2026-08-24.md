@@ -61,3 +61,61 @@ The stable dimensions/facts remain at 500 nurses and 3,000 shifts even though RA
 4. RAW preserves both batches as append-only audit history.
 5. STAGING deduplicates business keys before analytics models are built.
 6. Relationship, uniqueness, and activation-policy checks all pass after the second batch.
+
+## Five-minute live showcase
+
+This demo proves partition-based incremental ingestion and idempotency without
+deleting or resetting any existing data.
+
+1. In Airflow, open `carematch_synthetic_sources_to_s3`, select **Trigger DAG w/ config**,
+   and enter a date that has never been used before:
+
+   ```json
+   {"load_date": "YYYY-MM-DD"}
+   ```
+
+2. Trigger the run and show the graph. The expected result is eight green tasks:
+   one generator, six parallel source uploads, and one manifest upload.
+3. In S3, open the bucket and show the new keys under
+   `raw/source=.../entity=.../load_date=YYYY-MM-DD/` plus
+   `manifests/load_date=YYYY-MM-DD/manifest.json`.
+4. In Snowsight, record a simple RAW count before loading:
+
+   ```sql
+   USE ROLE ACCOUNTADMIN;
+   USE WAREHOUSE CAREMATCH_INGEST_WH;
+   USE DATABASE CAREMATCH;
+   SELECT COUNT(*) AS nurses_before FROM RAW.NURSES;
+   ```
+
+5. Run `snowflake/sql/02_s3_stage_and_raw_load.sql`. Its `COPY INTO` results should
+   show rows loaded for the newly created files. Run the count again and show that it
+   increased.
+6. Immediately rerun the same SQL file without `FORCE = TRUE`. Snowflake load history
+   skips those filenames, so the count remains unchanged and the second-run delta is
+   zero.
+7. Run dbt, then show that RAW retains every batch while the current-state model is
+   deduplicated by business key:
+
+   ```sql
+   SELECT COUNT(*) AS raw_nurse_rows FROM CAREMATCH.RAW.NURSES;
+   SELECT COUNT(*) AS current_nurses FROM CAREMATCH.ANALYTICS.DIM_NURSES;
+   SELECT nurse_id, COUNT(*) AS copies
+   FROM CAREMATCH.ANALYTICS.DIM_NURSES
+   GROUP BY nurse_id
+   HAVING COUNT(*) > 1;
+   ```
+
+   The final query must return no rows.
+
+### What to say during the demo
+
+“Airflow creates a deterministic batch for a new business date. S3 stores it in a
+new immutable date partition. Snowflake loads only filenames absent from its COPY
+history, so a new partition adds rows but rerunning the same partition adds zero.
+RAW remains append-only for auditability; dbt staging ranks records by business key
+and keeps the newest version for the analytics models.”
+
+This is file/partition-level incremental loading. The synthetic demo intentionally
+generates a complete daily source snapshot; dbt deduplication prevents those daily
+snapshots from multiplying current-state entities downstream.
