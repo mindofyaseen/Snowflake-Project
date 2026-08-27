@@ -47,6 +47,28 @@ Run the displayed password command, then start the displayed tunnel command. Bro
 to `http://localhost:8080`, sign in as `admin`, enable
 `carematch_synthetic_sources_to_s3`, and trigger it.
 
+Port `8080` is bound only on the EC2 host and is not exposed by the security group.
+Keep the SSM port-forwarding command running for the entire browser session. If the
+browser reports that localhost refused the connection, verify the local plugin and
+restart the tunnel:
+
+```powershell
+session-manager-plugin --version
+aws ssm start-session --profile carematch-dev --region us-east-1 `
+  --target INSTANCE_ID `
+  --document-name AWS-StartPortForwardingSession `
+  --parameters "portNumber=8080,localPortNumber=8080"
+```
+
+A successful tunnel prints `Port 8080 opened` and `Waiting for connections`. Verify
+it independently with:
+
+```powershell
+(Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8080/health).StatusCode
+```
+
+The expected response is `200`. Do not add a public inbound rule for port `8080`.
+
 ## Verify S3
 
 ```powershell
@@ -54,7 +76,7 @@ aws s3 ls "s3://YOUR_BUCKET/raw/" --recursive --profile carematch-dev
 aws s3 ls "s3://YOUR_BUCKET/manifests/" --recursive --profile carematch-dev
 ```
 
-The current milestone deliberately stops at S3. Snowflake, dbt, Hightouch, and
-downstream destinations will be added only after the six-source landing run is
-verified.
-
+The complete case-study continues from S3 into Snowflake raw tables, dbt staging and
+mart models, and reverse ETL. See `docs/FINAL_VERIFICATION_2026-08-25.md` for the
+latest verified end-to-end run and `docs/EXTERNAL_SAAS_INTEGRATION_STATUS.md` for
+the login-dependent Hightouch/Fivetran destination status.
