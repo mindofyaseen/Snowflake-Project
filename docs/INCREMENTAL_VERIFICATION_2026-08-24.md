@@ -123,3 +123,28 @@ and keeps the newest version for the analytics models.”
 This is file/partition-level incremental loading. The synthetic demo intentionally
 generates a complete daily source snapshot; dbt deduplication prevents those daily
 snapshots from multiplying current-state entities downstream.
+
+## Same-day batch verification on 2026-08-29
+
+The updated DAG was deployed to the EC2 Airflow server and run with this config:
+
+```json
+{"nurse_count": 525}
+```
+
+The run ID was `manual__same_day_incremental_20260829_525`. Airflow completed the
+run successfully and stored the files under a unique `batch_id` path for the actual
+UTC date. Snowflake then loaded the new files and the transformation models were
+refreshed.
+
+| Check | Before | After |
+| --- | ---: | ---: |
+| RAW nurse rows | 4,500 | 5,025 |
+| Distinct nurse IDs in RAW | 500 | 525 |
+| Current nurses in `STAGING.STG_NURSES` | 500 | 525 |
+| At-risk nurses for Hightouch | 245 | 257 |
+
+Snowflake COPY history contained one nurse file for this run. An immediate rerun
+of the same `COPY INTO NURSES` statement left the counts at 5,025 RAW rows and 525
+distinct nurses, proving that the same file was not duplicated. The final quality
+summary was 7 tests run, 0 failed tests, and 0 failing rows.
