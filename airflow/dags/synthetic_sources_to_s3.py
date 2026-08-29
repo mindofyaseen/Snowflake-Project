@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -45,22 +46,36 @@ def _bucket_name() -> str:
 def synthetic_sources_to_s3():
     @task
     def generate_files(**context) -> dict:
-        configured_load_date = (context.get("dag_run").conf or {}).get("load_date")
+        dag_run = context.get("dag_run")
+        config = (dag_run.conf or {}) if dag_run else {}
+        configured_load_date = config.get("load_date")
         run_date: date = (
             date.fromisoformat(configured_load_date)
             if configured_load_date
-            else context["data_interval_end"].date()
+            else datetime.now(timezone.utc).date()
         )
-        run_root = GENERATED_ROOT / run_date.isoformat()
+        nurse_count = int(config.get("nurse_count", 500))
+        if not 1 <= nurse_count <= 5000:
+            raise AirflowException("nurse_count must be between 1 and 5000")
+
+        raw_run_id = dag_run.run_id if dag_run else context["run_id"]
+        batch_id = re.sub(r"[^A-Za-z0-9_-]+", "_", raw_run_id).strip("_")
+        run_root = GENERATED_ROOT / run_date.isoformat() / batch_id
         manifest = generate(
             root=run_root,
-            seed=int(run_date.strftime("%Y%m%d")),
+            seed=int(run_date.strftime("%Y%m%d")) + nurse_count,
             load_date=run_date,
-            nurse_count=500,
+            nurse_count=nurse_count,
             facility_count=40,
             shift_count=3000,
         )
-        return {"root": str(run_root), "load_date": run_date.isoformat(), "manifest": manifest}
+        return {
+            "root": str(run_root),
+            "load_date": run_date.isoformat(),
+            "batch_id": batch_id,
+            "nurse_count": nurse_count,
+            "manifest": manifest,
+        }
 
     @task
     def upload_source(source: str, payload: dict) -> dict:
@@ -80,7 +95,8 @@ def synthetic_sources_to_s3():
         uploaded = []
         for entry in selected:
             local_file = root / entry["object_key"]
-            key = f"raw/{entry['object_key']}"
+            path, filename = entry["object_key"].rsplit("/", 1)
+            key = f"raw/{path}/batch_id={payload['batch_id']}/{filename}"
             hook.load_file(filename=str(local_file), key=key, bucket_name=bucket, replace=True)
             remote_size = hook.get_key(key=key, bucket_name=bucket).content_length
             if remote_size != entry["bytes"]:
@@ -97,7 +113,10 @@ def synthetic_sources_to_s3():
             raise AirflowException(f"Expected six completed source families, got {sorted(completed)}")
 
         bucket = _bucket_name()
-        key = f"manifests/load_date={payload['load_date']}/manifest.json"
+        key = (
+            f"manifests/load_date={payload['load_date']}"
+            f"/batch_id={payload['batch_id']}/manifest.json"
+        )
         landed_files = [
             entry for entry in payload["manifest"]["files"]
             if entry["object_key"].split("/", 1)[0].removeprefix("source=") in completed
@@ -105,6 +124,8 @@ def synthetic_sources_to_s3():
         body = json.dumps(
             {
                 **payload["manifest"],
+                "batch_id": payload["batch_id"],
+                "requested_nurse_count": payload["nurse_count"],
                 "files": landed_files,
                 "uploaded_source_families": sorted(completed),
             },

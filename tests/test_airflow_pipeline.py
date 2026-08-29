@@ -31,8 +31,18 @@ class AirflowPipelineTests(unittest.TestCase):
 
     def test_manual_runs_can_select_an_incremental_load_date(self):
         dag_source = DAG_FILE.read_text(encoding="utf-8")
-        self.assertIn('context.get("dag_run").conf', dag_source)
+        self.assertIn('config.get("load_date")', dag_source)
         self.assertIn('date.fromisoformat(configured_load_date)', dag_source)
+
+    def test_runs_default_to_actual_current_utc_date(self):
+        dag_source = DAG_FILE.read_text(encoding="utf-8")
+        self.assertIn('datetime.now(timezone.utc).date()', dag_source)
+        self.assertNotIn('context["data_interval_end"].date()', dag_source)
+
+    def test_same_day_runs_use_unique_batch_paths(self):
+        dag_source = DAG_FILE.read_text(encoding="utf-8")
+        self.assertIn("batch_id={payload['batch_id']}", dag_source)
+        self.assertIn('config.get("nurse_count", 500)', dag_source)
 
     def test_compose_binds_ui_to_loopback_only(self):
         compose = COMPOSE_FILE.read_text(encoding="utf-8")

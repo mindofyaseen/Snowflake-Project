@@ -67,18 +67,22 @@ The stable dimensions/facts remain at 500 nurses and 3,000 shifts even though RA
 This demo proves partition-based incremental ingestion and idempotency without
 deleting or resetting any existing data.
 
-1. In Airflow, open `carematch_synthetic_sources_to_s3`, select **Trigger DAG w/ config**,
-   and enter a date that has never been used before:
+1. In Airflow, open `carematch_synthetic_sources_to_s3`, select **Trigger DAG w/ config**.
+   Omit `load_date` to use today's UTC date, and request a visibly different
+   source size:
 
    ```json
-   {"load_date": "YYYY-MM-DD"}
+   {"nurse_count": 525}
    ```
 
 2. Trigger the run and show the graph. The expected result is eight green tasks:
    one generator, six parallel source uploads, and one manifest upload.
 3. In S3, open the bucket and show the new keys under
-   `raw/source=.../entity=.../load_date=YYYY-MM-DD/` plus
-   `manifests/load_date=YYYY-MM-DD/manifest.json`.
+   `raw/source=.../entity=.../load_date=YYYY-MM-DD/batch_id=RUN_ID/` plus
+   `manifests/load_date=YYYY-MM-DD/batch_id=RUN_ID/manifest.json`.
+
+   If `load_date` is omitted, the DAG uses the actual current UTC date. The
+   optional `nurse_count` setting makes a before-and-after demonstration easy.
 4. In Snowsight, record a simple RAW count before loading:
 
    ```sql
