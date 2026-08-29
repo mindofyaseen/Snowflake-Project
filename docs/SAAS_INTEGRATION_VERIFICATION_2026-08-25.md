@@ -4,7 +4,7 @@
 
 ```text
 CAREMATCH.ANALYTICS.AUDIENCE_AT_RISK_NURSES -> Hightouch -> Slack
-Marketo -> Fivetran -> FIVETRAN_LANDING
+SurveyMonkey -> Fivetran -> FIVETRAN_LANDING
 ```
 
 OneDrive is retained as an optional secondary file-export destination and is not required for the primary live demonstration.
@@ -39,6 +39,10 @@ Fivetran reported **All connection tests passed** for:
 5. Validate Internal Stage Access Test
 6. Permission Test
 
+## SurveyMonkey connector
+
+SurveyMonkey OAuth authorization succeeded and the connector is configured with destination schema `survey_monkey_case_study`. The connection test reached the source but returned `No Surveys Found`, because the authenticated account currently has no owned or shared surveys. An initial sync can begin after a synthetic demonstration survey is added.
+
 ## Marketo connector
 
 A Marketo connector draft was created with destination schema `marketo`. Final testing and initial sync require credentials from a Marketo Admin account:
@@ -72,15 +76,17 @@ The Hightouch source `CareMatch Snowflake` is connected through RSA key-pair aut
 3. Verify permission to write to the planner schema
 4. Verify permission to write to the audit schema
 
-The private key was uploaded only to Hightouch and remains excluded from Git. Slack is selected as the activation destination and is waiting on the final workspace OAuth `Allow` action. The consent screen is scoped to the `IntelyCare` workspace and requests permission to view channel/workspace/user information and to send messages, files, and reactions. This persistent authorization must be explicitly approved by the account owner.
+The private key was uploaded only to Hightouch and remains excluded from Git. Slack OAuth is authorized, the destination health test passes, and the `At Risk Nurses` model reads `CAREMATCH.ANALYTICS.AUDIENCE_AT_RISK_NURSES` with `NURSE_ID` as its primary key. Sync `8379886` is enabled for Slack channel `C0BS2TQSS9M`.
 
-After Slack authorization:
+The first live run on 29 August 2026 queried 257 model rows. Slack rejected all 257 operations with `not_in_channel`; the Hightouch Slack app must be invited to the selected channel before rerunning.
 
-1. Finalize the Hightouch Slack destination.
-2. Create a model from `CAREMATCH.ANALYTICS.AUDIENCE_AT_RISK_NURSES` with primary key `NURSE_ID`.
-3. Configure the first sync to the dedicated Slack demo channel.
-4. Run and verify an initial sync, then verify an incremental update.
+After the channel membership fix:
+
+1. Rerun sync `8379886`.
+2. Confirm 257 successful operations and zero rejected operations.
+3. Open Slack channel `C0BS2TQSS9M` and verify the delivered table.
+4. Generate the next Airflow batch and rerun the sync to demonstrate changed-row activation.
 
 ## Completion boundary
 
-The production-style core pipeline (EC2/Airflow -> S3 -> Snowflake -> dbt) and both Snowflake SaaS service connections are complete. The remaining work is third-party account authorization or product-specific credential/configuration work; it cannot be completed safely or truthfully without the account owner's OAuth approval and, for Marketo/Pendo, subscription-level API capabilities.
+The production-style core pipeline (EC2/Airflow -> S3 -> Snowflake -> dbt) and both Snowflake SaaS service connections are complete. A fresh `2026-08-30` batch is present in S3, Snowflake contains 4,000 raw nurse snapshots and 500 unique nurses, and all seven data quality checks pass. The remaining live-demo work is adding the Hightouch app to the Slack channel and adding one owned SurveyMonkey survey so the first Fivetran sync can start. Marketo and Pendo remain optional because their APIs require subscription-level credentials.
