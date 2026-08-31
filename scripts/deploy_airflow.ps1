@@ -8,6 +8,8 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$env:AWS_PROFILE = $Profile
+$env:AWS_REGION = $Region
 $terraformDirectory = Join-Path $PSScriptRoot "..\infra\terraform\ec2-airflow"
 
 terraform "-chdir=$terraformDirectory" init
@@ -26,4 +28,3 @@ if ($Action -eq "apply") {
     terraform "-chdir=$terraformDirectory" output airflow_tunnel_command
     terraform "-chdir=$terraformDirectory" output password_command
 }
-

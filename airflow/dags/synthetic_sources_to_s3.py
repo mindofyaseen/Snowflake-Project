@@ -49,12 +49,16 @@ def synthetic_sources_to_s3():
         dag_run = context.get("dag_run")
         config = (dag_run.conf or {}) if dag_run else {}
         configured_load_date = config.get("load_date")
+        load_mode = str(config.get("load_mode", "incremental")).lower()
+        if load_mode not in {"initial", "incremental"}:
+            raise AirflowException("load_mode must be initial or incremental")
         run_date: date = (
             date.fromisoformat(configured_load_date)
             if configured_load_date
             else datetime.now(timezone.utc).date()
         )
-        nurse_count = int(config.get("nurse_count", 500))
+        default_nurse_count = 500 if load_mode == "initial" else 550
+        nurse_count = int(config.get("nurse_count", default_nurse_count))
         if not 1 <= nurse_count <= 5000:
             raise AirflowException("nurse_count must be between 1 and 5000")
 
@@ -74,6 +78,7 @@ def synthetic_sources_to_s3():
             "load_date": run_date.isoformat(),
             "batch_id": batch_id,
             "nurse_count": nurse_count,
+            "load_mode": load_mode,
             "manifest": manifest,
         }
 
@@ -126,6 +131,7 @@ def synthetic_sources_to_s3():
                 **payload["manifest"],
                 "batch_id": payload["batch_id"],
                 "requested_nurse_count": payload["nurse_count"],
+                "load_mode": payload["load_mode"],
                 "files": landed_files,
                 "uploaded_source_families": sorted(completed),
             },

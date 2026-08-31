@@ -1,0 +1,15 @@
+aws_profile = "carematch-dev"
+aws_region  = "us-east-1"
+environment = "dev"
+
+# Enable after the Snowflake storage integration returns these values.
+enable_snowflake_s3_trust = false
+snowflake_iam_user_arn     = ""
+snowflake_external_id      = ""
+
+# Enable after the Fivetran connector has completed its one-time OAuth flow.
+enable_fivetran_schedule   = false
+fivetran_connector_id      = ""
+fivetran_sync_frequency    = "360"
+pause_fivetran_after_trial = true
+

@@ -42,6 +42,10 @@ jobs:
         run: |
           terraform -chdir=infra/terraform/ec2-airflow init -backend=false
           terraform -chdir=infra/terraform/ec2-airflow validate
+      - name: Validate composite platform Terraform
+        run: |
+          terraform -chdir=infra/terraform/platform init -backend=false
+          terraform -chdir=infra/terraform/platform validate
 
   compose:
     runs-on: ubuntu-latest

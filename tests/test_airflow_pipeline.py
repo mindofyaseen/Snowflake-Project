@@ -42,7 +42,13 @@ class AirflowPipelineTests(unittest.TestCase):
     def test_same_day_runs_use_unique_batch_paths(self):
         dag_source = DAG_FILE.read_text(encoding="utf-8")
         self.assertIn("batch_id={payload['batch_id']}", dag_source)
-        self.assertIn('config.get("nurse_count", 500)', dag_source)
+        self.assertIn('config.get("nurse_count", default_nurse_count)', dag_source)
+
+    def test_initial_and_incremental_modes_have_distinct_defaults(self):
+        dag_source = DAG_FILE.read_text(encoding="utf-8")
+        self.assertIn('load_mode not in {"initial", "incremental"}', dag_source)
+        self.assertIn('500 if load_mode == "initial" else 550', dag_source)
+        self.assertIn('"load_mode": payload["load_mode"]', dag_source)
 
     def test_compose_binds_ui_to_loopback_only(self):
         compose = COMPOSE_FILE.read_text(encoding="utf-8")

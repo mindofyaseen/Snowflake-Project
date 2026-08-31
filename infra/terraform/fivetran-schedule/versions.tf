@@ -8,8 +8,3 @@ terraform {
     }
   }
 }
-
-provider "fivetran" {
-  # Set FIVETRAN_APIKEY and FIVETRAN_APISECRET in the process environment.
-  # Provider credentials are deliberately never written to tfvars or state.
-}

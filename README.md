@@ -9,6 +9,11 @@ SaaS sources -> Fivetran -> Snowflake -> dbt -> Hightouch -> Salesforce/Slack
 
 The deployed small-scale pipeline covers deterministic synthetic sources, Airflow on EC2, a secure S3 landing zone, Snowflake ingestion, dbt transformation models, and least-privilege service identities for Hightouch and Fivetran.
 
+The account-portable entry point is `infra/terraform/platform`. It composes the
+AWS infrastructure with optional Snowflake trust and Fivetran scheduling. Use
+`scripts/invoke_case_study_pipeline.ps1` to run explicit `initial`, `incremental`,
+or `verify` modes. See [the full automation runbook](docs/FULL_AUTOMATION_RUNBOOK.md).
+
 The full business/technical narrative and demo sequence are documented in [the case study](docs/CASE_STUDY.md). The final three-batch core-pipeline evidence is in [the final verification report](docs/FINAL_VERIFICATION_2026-08-25.md). Hightouch and Fivetran connection settings are recorded in [the SaaS integrations runbook](docs/SAAS_INTEGRATIONS_RUNBOOK.md), with live connection evidence in [the SaaS verification report](docs/SAAS_INTEGRATION_VERIFICATION_2026-08-25.md).
 
 ## Milestone 1: generate source data
@@ -74,6 +79,7 @@ data/                     local generated data (ignored by Git)
 infra/terraform/s3/       secure S3 landing-zone infrastructure
 infra/terraform/ec2-airflow/ EC2, networking, IAM, and Airflow bootstrap
 infra/terraform/snowflake-s3-integration/ scoped Snowflake IAM trust and S3 read policy
+infra/terraform/platform/ composite, account-portable infrastructure entry point
 airflow/                  pinned image, Compose stack, and six-source S3 DAG
 snowflake/sql/            idempotent platform, ingestion, transformation, and QA SQL
 dbt/                      staging, analytics, activation models, and tests
