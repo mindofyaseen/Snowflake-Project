@@ -41,7 +41,29 @@ Fivetran reported **All connection tests passed** for:
 
 ## SurveyMonkey connector
 
-SurveyMonkey OAuth authorization succeeded and the connector is configured with destination schema `survey_monkey_case_study`. The connection test reached the source but returned `No Surveys Found`, because the authenticated account currently has no owned or shared surveys. An initial sync can begin after a synthetic demonstration survey is added.
+SurveyMonkey OAuth authorization succeeded and the connector is configured with destination schema `survey_monkey_case_study`.
+
+The demonstration survey `CareMatch Healthcare Staffing Experience 2026` contains three questions, 15 answer choices, and one synthetic response. Its public collector is:
+
+`https://www.surveymonkey.com/r/QHFR7TD`
+
+Fivetran connector `prohibited_every` completed its first historical sync on 31 August 2026. The run took 31 seconds and loaded 51 rows into Snowflake. A direct RSA-authenticated Snowflake query confirmed these exact counts:
+
+| Snowflake table | Rows |
+|---|---:|
+| `COLLECTOR` | 1 |
+| `QUESTION_HEADING_HISTORY` | 3 |
+| `QUESTION_HISTORY` | 3 |
+| `QUESTION_OPTION_HISTORY` | 15 |
+| `RESPONSE_ANSWER` | 3 |
+| `RESPONSE_HISTORY` | 1 |
+| `RESPONSE_PAGE` | 1 |
+| `SURVEY_CATEGORY` | 22 |
+| `SURVEY_HISTORY` | 1 |
+| `SURVEY_PAGE_HISTORY` | 1 |
+| **Total** | **51** |
+
+The connector is active and scheduled for incremental syncs. Fivetran will use its source cursors and history tables to fetch later SurveyMonkey changes without repeating a full historical reload.
 
 ## Marketo connector
 
@@ -65,7 +87,7 @@ The Fivetran `Connections` page now contains four Snowflake-bound application co
 | `salesforce` | `salesforce` | Incomplete | Complete Salesforce OAuth authorization, then Save & Test |
 | `survey_monkey` | `survey_monkey` | Incomplete | Authorize Fivetran to read owned/shared surveys; an active SurveyMonkey subscription is required |
 
-`fivetran_metadata` is present but paused. No application connector has started an initial sync, so the Fivetran trial has not been activated by a completed initial sync and no application rows have landed in `FIVETRAN_LANDING` yet.
+`fivetran_metadata` is present but paused. The separate `survey_monkey_case_study` connector is active and its initial sync has completed successfully. Marketo, Pendo, and Salesforce remain connector drafts until their account authorization requirements are satisfied.
 
 ## Hightouch source result
 
@@ -89,4 +111,6 @@ After the channel membership fix:
 
 ## Completion boundary
 
-The production-style core pipeline (EC2/Airflow -> S3 -> Snowflake -> dbt) and both Snowflake SaaS service connections are complete. A fresh `2026-08-30` batch is present in S3, Snowflake contains 4,000 raw nurse snapshots and 500 unique nurses, and all seven data quality checks pass. The remaining live-demo work is adding the Hightouch app to the Slack channel and adding one owned SurveyMonkey survey so the first Fivetran sync can start. Marketo and Pendo remain optional because their APIs require subscription-level credentials.
+The production-style core pipeline (EC2/Airflow -> S3 -> Snowflake -> dbt), the SurveyMonkey -> Fivetran -> Snowflake path, and both Snowflake SaaS service connections are complete. A fresh `2026-08-30` batch is present in S3, Snowflake contains 4,000 raw nurse snapshots and 500 unique nurses, all seven core data quality checks pass, and the Fivetran landing database contains 51 verified SurveyMonkey rows.
+
+The remaining live-demo work is adding the Hightouch app to the selected Slack channel and rerunning sync `8379886`. Marketo and Pendo remain optional because their APIs require subscription-level credentials. The new Fivetran Terraform schedule module defaults to `pause_after_trial = true`, but applying that live guardrail requires a Fivetran API key and secret.

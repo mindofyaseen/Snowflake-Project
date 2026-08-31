@@ -1,0 +1,4 @@
+connector_id      = "replace-with-connector-id"
+sync_frequency    = "360"
+paused            = false
+pause_after_trial = true
