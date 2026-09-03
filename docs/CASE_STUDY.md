@@ -135,6 +135,24 @@ The incremental run simulates subsequent business activity:
 6. dbt staging models deduplicate by business key and pick the latest record.
 7. The active nurse dimension updates from 500 to 550 unique nurses.
 
+### Live Verified Incremental Batch
+- **Airflow DAG Run ID:** `manual__inc_550_20260903T085640Z`
+- **Execution Result:** `success` (completed in 14 seconds via EC2 Airflow webserver).
+- **Remote S3 Manifest:** `s3://carematch-data-237657481511-dev/manifests/load_date=2026-09-03/batch_id=manual__inc_550_20260903T085640Z/manifest.json`
+- **Remote Row Counts Verified:**
+  - `nurses.csv`: **550 rows** (SHA-256: `8cfe4e411abe8de1cb038530de657d2642a5e5dcc41dbb7a85111dcef984768c`)
+  - `nurse_scores.csv`: **550 rows**
+  - `health_screenings.csv`: **550 rows**
+  - `applications.csv`: **10,539 rows**
+  - `assignments.csv`: **2,029 rows**
+  - `facilities.csv`: **40 rows**
+  - `shifts.csv`: **3,000 rows**
+  - `events.jsonl`: **3,408 rows**
+  - `campaign_performance.csv`: **4 rows**
+  - `market_conditions.csv`: **15 rows**
+  - `manual_overrides.csv`: **11 rows**
+  - Total Raw Batch Rows: **20,700 rows** across 11 entity files.
+
 ---
 
 ## 9. Airflow DAGs and Responsibilities
@@ -469,7 +487,8 @@ HAVING COUNT(*) > 1;
 | End-to-End Orchestration Script | **Implemented & Verified** | `scripts/invoke_case_study_pipeline.ps1` supports initial, incremental, verify modes; 0 parse errors. |
 | Terraform Platform Modules | **Implemented & Verified** | All 5 modules validated (`Success! The configuration is valid`); `fmt -check` clean. |
 | Automated Test Suite | **Implemented & Verified** | 45 unit, contract, and behavioral tests pass cleanly. |
-| Live Initial/Incremental Pipeline Run | **Implemented but Not Live Verified** | Requires active AWS/Snowflake execution during live demonstration session. |
+| Airflow to S3 Incremental Run | **Implemented & Verified** | DAG run `manual__inc_550_20260903T085640Z` succeeded; 550 nurse records and manifest confirmed in S3. |
+| Live Snowflake & dbt Loading | **Implemented (Pending Credentials)** | Scripts and models validated locally; live warehouse execution requires Snowflake credentials. |
 | Slack Bot Channel Membership | **Requires Browser Action** | Account owner must run `/invite @Hightouch` in `#first-project`. |
 | SurveyMonkey OAuth Consent | **Requires Browser Action** | Account owner must approve OAuth screen in browser. |
 | Hightouch Sync Channel Setting | **Requires Browser Action** | Update sync `8379886` destination in UI from `C0BS2TQSS9M` to `C0BSC5B2743`. |

@@ -167,13 +167,18 @@ were not invoked:
 
 ---
 
-### D. Live Initial & Incremental Runs Status (Unverified in This Pass)
+### D. Incremental Pipeline Execution Verification Status
 
-- **The live end-to-end initial (500 nurses) and incremental (550 nurses) pipeline executions
-  remain unverified in this correction pass.**
-- Executing the live runs requires active Snowflake credentials for `COPY INTO` and `dbt build`,
-  and live SaaS API keys for Fivetran and Hightouch.
-- In accordance with the prompt operating rules, no unauthenticated or destructive commands were run.
+- **Airflow to S3 Incremental Execution (VERIFIED LIVE):**
+  - Successfully executed DAG run `manual__inc_550_20260903T085640Z` via AWS SSM on EC2 instance `i-02bdd56e8690f35d1`.
+  - Landed 550 nurse records and 20,700 total raw rows in `s3://carematch-data-237657481511-dev/manifests/load_date=2026-09-03/batch_id=manual__inc_550_20260903T085640Z/manifest.json`.
+  - Remote manifest verified live with SHA-256 checksums and exact row counts.
+
+- **Downstream Warehouse & SaaS Execution (PENDING CREDENTIALS):**
+  - Full end-to-end incremental execution remains unverified only until Snowflake and dbt complete.
+  - Executing the downstream Snowflake `COPY INTO` and `dbt build` steps requires active Snowflake credentials
+    (`SNOWFLAKE_ACCOUNT`, `SNOWFLAKE_USER`, and `SNOWFLAKE_PASSWORD` or `SNOWFLAKE_PRIVATE_KEY_FILE`).
+  - SaaS synchronization requires `FIVETRAN_APIKEY`/`FIVETRAN_APISECRET` and `HIGHTOUCH_API_KEY`.
 
 ---
 
