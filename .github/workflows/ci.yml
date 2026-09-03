@@ -1,15 +1,18 @@
-name: Validate source data and infrastructure
+name: Continuous Integration & Validation
 
 on:
   push:
+    branches: [main]
   pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  test:
+  python-tests-and-contracts:
+    name: Python Tests & Data Contracts
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -17,14 +20,80 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Run generator tests
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyyaml dbt-snowflake
+      - name: Run complete test suite
         run: python -m unittest discover -s tests -v
-      - name: Generate full source data
+      - name: Test synthetic data generation
         run: python -m src.generate_healthcare_data --output data/generated
-      - name: Verify manifest exists
+      - name: Verify generated manifest
         run: test -s data/generated/manifest.json
 
+  dbt-and-sql-validation:
+    name: Credential-Free dbt & Snowflake SQL Parse
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dbt and dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install dbt-snowflake snowflake-connector-python
+      - name: Validate dbt project parse without credentials
+        run: |
+          mkdir -p /tmp/dbt_profiles
+          cat << 'EOF' > /tmp/dbt_profiles/profiles.yml
+          carematch:
+            target: dev
+            outputs:
+              dev:
+                type: snowflake
+                account: dummy_account
+                user: dummy_user
+                password: dummy_password
+                role: dummy_role
+                database: CAREMATCH
+                warehouse: dummy_wh
+                schema: ANALYTICS
+                threads: 1
+          EOF
+          dbt --no-version-check --no-send-anonymous-usage-stats parse --project-dir dbt --profiles-dir /tmp/dbt_profiles
+      - name: Validate Snowflake SQL dry-run
+        run: |
+          python scripts/run_snowflake_sql.py --dry-run --bucket dummy-bucket \
+            snowflake/sql/02_s3_stage_and_raw_load.sql \
+            snowflake/sql/06_incremental_demo.sql \
+            snowflake/sql/07_pipeline_audit.sql
+
+  powershell-validation:
+    name: PowerShell Script Syntax Validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate PowerShell syntax
+        shell: pwsh
+        run: |
+          $allOk = $true
+          Get-ChildItem -Path "scripts" -Filter "*.ps1" | ForEach-Object {
+              $errors = $null
+              $null = [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$null, [ref]$errors)
+              if ($errors.Count -gt 0) {
+                  $allOk = $false
+                  Write-Error "PowerShell parse error in $($_.Name): $errors"
+              } else {
+                  Write-Host "PASS: $($_.Name)"
+              }
+          }
+          if (-not $allOk) { exit 1 }
+
   terraform:
+    name: Terraform Format & Validation
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -32,25 +101,59 @@ jobs:
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.14.3
-      - name: Terraform format
+      - name: Terraform format check
         run: terraform fmt -check -recursive infra/terraform
-      - name: Validate S3 Terraform
+      - name: Validate S3 module
         run: |
           terraform -chdir=infra/terraform/s3 init -backend=false
           terraform -chdir=infra/terraform/s3 validate
-      - name: Validate EC2 Airflow Terraform
+      - name: Validate EC2 Airflow module
         run: |
           terraform -chdir=infra/terraform/ec2-airflow init -backend=false
           terraform -chdir=infra/terraform/ec2-airflow validate
-      - name: Validate composite platform Terraform
+      - name: Validate Snowflake S3 Integration module
+        run: |
+          terraform -chdir=infra/terraform/snowflake-s3-integration init -backend=false
+          terraform -chdir=infra/terraform/snowflake-s3-integration validate
+      - name: Validate composite platform root
         run: |
           terraform -chdir=infra/terraform/platform init -backend=false
           terraform -chdir=infra/terraform/platform validate
 
-  compose:
+  code-hygiene-and-secrets:
+    name: Code Hygiene, UTF-8 BOM & Secret Leak Scan
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-      - name: Render Airflow Compose configuration
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Git whitespace check
+        run: git diff --check
+      - name: UTF-8 BOM scan
+        run: |
+          python -c "
+          import pathlib
+          bom = [str(p) for p in pathlib.Path('.').rglob('*') if p.is_file() and not any(x in str(p) for x in ['.git', '.venv', '__pycache__', '.terraform', 'data']) and p.read_bytes().startswith(b'\xef\xbb\xbf')]
+          if bom:
+              print('Files with UTF-8 BOM detected:', bom)
+              exit(1)
+          print('UTF-8 BOM scan: PASS')
+          "
+      - name: Tracked files secret and state scan
+        run: |
+          python -c "
+          import subprocess
+          tracked = subprocess.check_output(['git', 'ls-files'], text=True).splitlines()
+          violations = []
+          for p in tracked:
+              if (p.endswith('.env') and not p.endswith('.env.example')) or any(p.endswith(x) for x in ['.p8', '.pem', '.key']) or '.tfstate' in p:
+                  violations.append((p, 'Forbidden secret or state file'))
+          if violations:
+              print('Tracked file violations found:', violations)
+              exit(1)
+          print('Security and state tracking scan: PASS')
+          "
+      - name: Validate Airflow docker-compose configuration
         run: docker compose --env-file airflow/.env.example -f airflow/docker-compose.ec2.yaml config --quiet

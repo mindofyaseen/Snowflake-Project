@@ -29,6 +29,7 @@ $env:FIVETRAN_CONNECTOR_ID = "prohibited_every"
 
 $env:HIGHTOUCH_API_KEY = "<key>"
 $env:HIGHTOUCH_SYNC_ID = "8379886"
+# Note: Destination channel in Hightouch UI must be configured to #first-project (ID: C0BSC5B2743), not stale channel C0BS2TQSS9M.
 ```
 
 Do not put any of these values in a committed file or Terraform variable file.
@@ -54,7 +55,7 @@ Do not put any of these values in a committed file or Terraform variable file.
 | `-SaasTimeoutSeconds` | `1800` | Maximum seconds to poll SaaS syncs |
 | `-SaasPollIntervalSeconds` | `30` | Interval in seconds between SaaS status polls |
 | `-DryRun` | off | Validate SQL and orchestrator steps without remote calls |
-| `-ExistingBatchId` | none | Ingest an existing S3 batch without re-triggering Airflow |
+| `-ExistingBatchId` | none | Ingest an existing S3 batch without re-triggering Airflow (e.g. `manual__inc_550_20260903T085640Z`) |
 | `-SkipAirflow` | off | Skip Airflow execution |
 | `-SkipSnowflake` | off | Skip Snowflake ingestion and dbt build |
 | `-SkipInfrastructure` | off | Skip Terraform platform output checks |

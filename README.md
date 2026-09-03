@@ -58,7 +58,7 @@ The deployed Snowflake layer contains:
 - `CAREMATCH.RAW`: 11 source tables loaded from the S3 external stage.
 - `CAREMATCH.STAGING`: five cleaned dbt views.
 - `CAREMATCH.ANALYTICS`: nurse, shift, marketing, market, and activation models.
-- `CAREMATCH.ANALYTICS.AUDIENCE_AT_RISK_NURSES`: consent-safe Hightouch source model.
+- `CAREMATCH.ANALYTICS.AUDIENCE_AT_RISK_NURSES`: consent-safe Hightouch source model destined for Slack `#first-project` (`C0BSC5B2743`).
 
 Terraform creates the AWS role trusted by Snowflake and restricts it to read-only access under the bucket's `raw/` prefix. Snowflake SQL bootstraps the warehouse, RBAC, storage integration, stage, source tables, and validation queries. The dbt project is under `dbt/`.
 

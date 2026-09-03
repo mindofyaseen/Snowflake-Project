@@ -1,0 +1,321 @@
+version: "1.0"
+description: "Data contracts for CareMatch healthcare staffing data platform landing entities."
+
+contracts:
+  - entity: nurses
+    source_family: operational
+    file_format: csv
+    business_purpose: "Core dimension holding clinical workforce demographic, licensing, credentialing, and activity status."
+    primary_key: ["nurse_id"]
+    deduplication_key: ["nurse_id"]
+    incremental_watermark: "record_updated_at"
+    foreign_keys: []
+    required_columns:
+      - nurse_id
+      - full_name
+      - email
+      - phone
+      - license_state
+      - specialty
+      - years_experience
+      - status
+      - completed_shifts_lifetime
+      - days_since_active
+      - notification_opt_in
+      - record_updated_at
+    column_schema:
+      nurse_id: { type: string, nullable: false }
+      full_name: { type: string, nullable: false }
+      email: { type: string, nullable: false }
+      phone: { type: string, nullable: false }
+      license_state: { type: string, nullable: false }
+      specialty: { type: string, nullable: false }
+      years_experience: { type: integer, nullable: false }
+      status: { type: string, nullable: false }
+      completed_shifts_lifetime: { type: integer, nullable: false }
+      days_since_active: { type: integer, nullable: false }
+      notification_opt_in: { type: boolean, nullable: false }
+      record_updated_at: { type: timestamp, nullable: false }
+    validation_rules:
+      - "status IN ('active', 'inactive', 'pending_verification', 'suspended')"
+      - "years_experience >= 0"
+      - "completed_shifts_lifetime >= 0"
+      - "days_since_active >= 0"
+      - "email LIKE '%.example'"
+
+  - entity: facilities
+    source_family: operational
+    file_format: csv
+    business_purpose: "Healthcare partner facilities requesting shift fulfillment and clinical coverage."
+    primary_key: ["facility_id"]
+    deduplication_key: ["facility_id"]
+    incremental_watermark: "record_updated_at"
+    foreign_keys: []
+    required_columns:
+      - facility_id
+      - facility_name
+      - facility_type
+      - state
+      - city
+      - record_updated_at
+    column_schema:
+      facility_id: { type: string, nullable: false }
+      facility_name: { type: string, nullable: false }
+      facility_type: { type: string, nullable: false }
+      state: { type: string, nullable: false }
+      city: { type: string, nullable: false }
+      record_updated_at: { type: timestamp, nullable: false }
+    validation_rules:
+      - "facility_type IN ('hospital', 'skilled_nursing', 'urgent_care', 'rehabilitation')"
+
+  - entity: shifts
+    source_family: operational
+    file_format: csv
+    business_purpose: "Open, booked, and completed clinical shifts posted by healthcare facilities."
+    primary_key: ["shift_id"]
+    deduplication_key: ["shift_id"]
+    incremental_watermark: "record_updated_at"
+    foreign_keys:
+      - { column: facility_id, references: "facilities.facility_id" }
+    required_columns:
+      - shift_id
+      - facility_id
+      - specialty_required
+      - shift_date
+      - start_time
+      - end_time
+      - hourly_rate
+      - status
+      - record_updated_at
+    column_schema:
+      shift_id: { type: string, nullable: false }
+      facility_id: { type: string, nullable: false }
+      specialty_required: { type: string, nullable: false }
+      shift_date: { type: date, nullable: false }
+      start_time: { type: string, nullable: false }
+      end_time: { type: string, nullable: false }
+      hourly_rate: { type: float, nullable: false }
+      status: { type: string, nullable: false }
+      record_updated_at: { type: timestamp, nullable: false }
+    validation_rules:
+      - "hourly_rate > 0"
+      - "status IN ('open', 'claimed', 'completed', 'cancelled')"
+
+  - entity: applications
+    source_family: operational
+    file_format: csv
+    business_purpose: "Nurse applications submitted for available open facility shifts."
+    primary_key: ["application_id"]
+    deduplication_key: ["application_id"]
+    incremental_watermark: "record_updated_at"
+    foreign_keys:
+      - { column: nurse_id, references: "nurses.nurse_id" }
+      - { column: shift_id, references: "shifts.shift_id" }
+    required_columns:
+      - application_id
+      - nurse_id
+      - shift_id
+      - application_status
+      - applied_at
+      - record_updated_at
+    column_schema:
+      application_id: { type: string, nullable: false }
+      nurse_id: { type: string, nullable: false }
+      shift_id: { type: string, nullable: false }
+      application_status: { type: string, nullable: false }
+      applied_at: { type: timestamp, nullable: false }
+      record_updated_at: { type: timestamp, nullable: false }
+    validation_rules:
+      - "application_status IN ('pending', 'accepted', 'rejected', 'withdrawn')"
+
+  - entity: assignments
+    source_family: operational
+    file_format: csv
+    business_purpose: "Confirmed shift matches linking nurses to shifts with fulfillment status."
+    primary_key: ["assignment_id"]
+    deduplication_key: ["assignment_id"]
+    incremental_watermark: "record_updated_at"
+    foreign_keys:
+      - { column: application_id, references: "applications.application_id" }
+      - { column: nurse_id, references: "nurses.nurse_id" }
+      - { column: shift_id, references: "shifts.shift_id" }
+    required_columns:
+      - assignment_id
+      - application_id
+      - nurse_id
+      - shift_id
+      - status
+      - assigned_at
+      - record_updated_at
+    column_schema:
+      assignment_id: { type: string, nullable: false }
+      application_id: { type: string, nullable: false }
+      nurse_id: { type: string, nullable: false }
+      shift_id: { type: string, nullable: false }
+      status: { type: string, nullable: false }
+      assigned_at: { type: timestamp, nullable: false }
+      record_updated_at: { type: timestamp, nullable: false }
+    validation_rules:
+      - "status IN ('scheduled', 'in_progress', 'completed', 'unfulfilled')"
+
+  - entity: health_screenings
+    source_family: operational
+    file_format: csv
+    business_purpose: "Immunization, TB test, and clinical compliance verification records."
+    primary_key: ["screening_id"]
+    deduplication_key: ["nurse_id", "screening_type"]
+    incremental_watermark: "record_updated_at"
+    foreign_keys:
+      - { column: nurse_id, references: "nurses.nurse_id" }
+    required_columns:
+      - screening_id
+      - nurse_id
+      - screening_type
+      - result
+      - screened_at
+      - expires_at
+      - record_updated_at
+    column_schema:
+      screening_id: { type: string, nullable: false }
+      nurse_id: { type: string, nullable: false }
+      screening_type: { type: string, nullable: false }
+      result: { type: string, nullable: false }
+      screened_at: { type: date, nullable: false }
+      expires_at: { type: date, nullable: true }
+      record_updated_at: { type: timestamp, nullable: false }
+    validation_rules:
+      - "result IN ('passed', 'pending', 'failed', 'exempt')"
+
+  - entity: nurse_scores
+    source_family: data_science
+    file_format: csv
+    business_purpose: "Predictive machine learning features including churn risk, reliability, and match likelihood."
+    primary_key: ["score_id"]
+    deduplication_key: ["nurse_id"]
+    incremental_watermark: "score_date"
+    foreign_keys:
+      - { column: nurse_id, references: "nurses.nurse_id" }
+    required_columns:
+      - score_id
+      - nurse_id
+      - score_date
+      - reliability_score
+      - churn_risk_score
+      - match_affinity_score
+    column_schema:
+      score_id: { type: string, nullable: false }
+      nurse_id: { type: string, nullable: false }
+      score_date: { type: date, nullable: false }
+      reliability_score: { type: float, nullable: false }
+      churn_risk_score: { type: float, nullable: false }
+      match_affinity_score: { type: float, nullable: false }
+    validation_rules:
+      - "reliability_score BETWEEN 0.0 AND 1.0"
+      - "churn_risk_score BETWEEN 0.0 AND 1.0"
+      - "match_affinity_score BETWEEN 0.0 AND 1.0"
+
+  - entity: events
+    source_family: app_stream
+    file_format: jsonl
+    business_purpose: "Mobile app clickstream events capturing nurse shift searches, views, and applies."
+    primary_key: ["event_id"]
+    deduplication_key: ["event_id"]
+    incremental_watermark: "timestamp"
+    foreign_keys:
+      - { column: nurse_id, references: "nurses.nurse_id" }
+    required_columns:
+      - event_id
+      - nurse_id
+      - event_name
+      - timestamp
+      - properties
+    column_schema:
+      event_id: { type: string, nullable: false }
+      nurse_id: { type: string, nullable: false }
+      event_name: { type: string, nullable: false }
+      timestamp: { type: timestamp, nullable: false }
+      properties: { type: json, nullable: false }
+    validation_rules:
+      - "event_name IN ('app_open', 'shift_search', 'shift_view', 'application_submit', 'settings_view')"
+
+  - entity: campaign_performance
+    source_family: appcast
+    file_format: csv
+    business_purpose: "Recruitment marketing ad spend, clicks, impressions, and applicant acquisition metrics."
+    primary_key: ["campaign_id"]
+    deduplication_key: ["campaign_id"]
+    incremental_watermark: "load_date"
+    foreign_keys: []
+    required_columns:
+      - campaign_id
+      - campaign_name
+      - spend
+      - clicks
+      - impressions
+      - applicants
+      - load_date
+    column_schema:
+      campaign_id: { type: string, nullable: false }
+      campaign_name: { type: string, nullable: false }
+      spend: { type: float, nullable: false }
+      clicks: { type: integer, nullable: false }
+      impressions: { type: integer, nullable: false }
+      applicants: { type: integer, nullable: false }
+      load_date: { type: date, nullable: false }
+    validation_rules:
+      - "spend >= 0.0"
+      - "clicks >= 0"
+      - "impressions >= 0"
+
+  - entity: market_conditions
+    source_family: external
+    file_format: csv
+    business_purpose: "Regional benchmark wage rates, staffing shortages, and economic market indices."
+    primary_key: ["market_id"]
+    deduplication_key: ["state", "specialty", "observation_date"]
+    incremental_watermark: "observation_date"
+    foreign_keys: []
+    required_columns:
+      - market_id
+      - state
+      - specialty
+      - benchmark_hourly_rate
+      - shortage_severity_index
+      - observation_date
+    column_schema:
+      market_id: { type: string, nullable: false }
+      state: { type: string, nullable: false }
+      specialty: { type: string, nullable: false }
+      benchmark_hourly_rate: { type: float, nullable: false }
+      shortage_severity_index: { type: float, nullable: false }
+      observation_date: { type: date, nullable: false }
+    validation_rules:
+      - "benchmark_hourly_rate > 0"
+      - "shortage_severity_index BETWEEN 0.0 AND 10.0"
+
+  - entity: manual_overrides
+    source_family: spreadsheets
+    file_format: csv
+    business_purpose: "Internal recruiter and account manager operational overrides, VIP flags, and outreach suppressions."
+    primary_key: ["override_id"]
+    deduplication_key: ["nurse_id"]
+    incremental_watermark: "updated_at"
+    foreign_keys:
+      - { column: nurse_id, references: "nurses.nurse_id" }
+    required_columns:
+      - override_id
+      - nurse_id
+      - override_reason
+      - suppress_outreach
+      - vip_status
+      - updated_at
+    column_schema:
+      override_id: { type: string, nullable: false }
+      nurse_id: { type: string, nullable: false }
+      override_reason: { type: string, nullable: false }
+      suppress_outreach: { type: boolean, nullable: false }
+      vip_status: { type: boolean, nullable: false }
+      updated_at: { type: timestamp, nullable: false }
+    validation_rules:
+      - "suppress_outreach IN (true, false)"
+      - "vip_status IN (true, false)"
