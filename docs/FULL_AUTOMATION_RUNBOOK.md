@@ -53,6 +53,18 @@ Snowflake `COPY INTO` loads only file names absent from copy history, dbt resolv
 the latest record for each nurse, Fivetran fetches source changes, and Hightouch
 change data capture sends only added, changed, or removed audience records.
 
+When the combined Terraform state has not yet been migrated, pass the existing
+resource identifiers explicitly so the data run does not try to discover them
+from the new composite state:
+
+```powershell
+.\scripts\invoke_case_study_pipeline.ps1 -Mode incremental `
+  -AwsProfile default `
+  -AirflowInstanceId i-02bdd56e8690f35d1 `
+  -S3BucketName carematch-data-237657481511-dev `
+  -IncrementalNurseCount 550
+```
+
 ## Before and after proof
 
 ```powershell
@@ -63,4 +75,3 @@ The verification queries show raw snapshots, unique nurses, source dates,
 Snowflake copy history, deduplicated dbt results, and the Hightouch audience count.
 The expected nurse demonstration is 500 current nurses before the incremental run
 and 550 after it, while raw snapshot rows continue to grow.
-

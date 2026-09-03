@@ -4,13 +4,15 @@ param(
     [ValidateSet("infrastructure", "initial", "incremental", "verify")]
     [string]$Mode,
 
-    [string]$AwsProfile = "carematch-dev",
+    [string]$AwsProfile = "default",
     [string]$AwsRegion = "us-east-1",
     [ValidateSet("dev", "test", "prod")]
     [string]$Environment = "dev",
     [datetime]$LoadDate = (Get-Date).ToUniversalTime().Date,
     [int]$InitialNurseCount = 500,
     [int]$IncrementalNurseCount = 550,
+    [string]$AirflowInstanceId,
+    [string]$S3BucketName,
     [switch]$ApplyInfrastructure,
     [switch]$RunFivetran,
     [switch]$RunHightouch,
@@ -53,7 +55,7 @@ function Invoke-Infrastructure {
 
 function Invoke-AirflowBatch {
     param([string]$LoadMode, [int]$NurseCount)
-    $instanceId = Get-PlatformOutput "airflow_instance_id"
+    $instanceId = if ($AirflowInstanceId) { $AirflowInstanceId } else { Get-PlatformOutput "airflow_instance_id" }
     $conf = @{ load_mode = $LoadMode; load_date = $LoadDate.ToString("yyyy-MM-dd"); nurse_count = $NurseCount } | ConvertTo-Json -Compress
     $runId = "carematch_${LoadMode}_$((Get-Date).ToUniversalTime().ToString('yyyyMMddTHHmmssZ'))"
     $remoteCommand = @"
@@ -134,7 +136,7 @@ try {
     }
 
     Invoke-Checked { python -m unittest discover -s tests -v } "Local validation failed"
-    $bucket = Get-PlatformOutput "s3_bucket_name"
+    $bucket = if ($S3BucketName) { $S3BucketName } else { Get-PlatformOutput "s3_bucket_name" }
 
     if ($Mode -in @("initial", "incremental")) {
         $isInitial = $Mode -eq "initial"
