@@ -32,7 +32,7 @@ The generator creates S3-ready Hive-style folders under `data/generated` and wri
 Configure a named AWS profile securely, then:
 
 ```powershell
-.\scripts\deploy_s3.ps1 -AwsProfile carematch-dev -Region us-east-1
+.\scripts\deploy_s3.ps1 -AwsProfile default -Region us-east-1
 ```
 
 The script generates data, runs tests, provisions the S3 landing bucket with Terraform, uploads source files, and verifies the remote manifest. It does not accept or write AWS credentials.

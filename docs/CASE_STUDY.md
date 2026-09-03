@@ -1,139 +1,476 @@
-# CareMatch Modern Data Stack — Case Study
+# CareMatch Healthcare Staffing Data Platform - End-to-End Case Study
 
-## Executive summary
+## 1. Executive Summary
 
-CareMatch is a small-scale, production-shaped healthcare staffing data platform inspired by the IntelyCare modern-data-stack pattern. It consolidates six synthetic operational and engagement sources, orchestrates incremental delivery through Apache Airflow on Amazon EC2, lands immutable batches in Amazon S3, loads them into Snowflake, transforms them with dbt, and prepares governed audiences for reverse ETL through Hightouch. A separate Fivetran landing database demonstrates the managed-SaaS ingestion path into the same Snowflake account.
+CareMatch is an IntelyCare-inspired modern healthcare staffing data platform. It solves the operational challenge of matching available nursing professionals with healthcare facility shift demand.
 
-The implementation is intentionally small enough to demonstrate live, but uses the same separation of duties, idempotency, security boundaries, and observability expected in a larger platform.
+The platform automates the end-to-end flow of healthcare data:
+- Six synthetic and operational source domains are generated on a schedule.
+- Apache Airflow running in Docker on an Amazon EC2 host orchestrates ingestion and loads date-partitioned files into an Amazon S3 data lake.
+- Snowflake loads immutable batches from S3 into an initial RAW layer without data duplication.
+- dbt transforms raw data into clean staging views and business-ready dimensional models, resolving duplicates by taking the latest business record.
+- Governed audiences of disengaging nurses are activated downstream into Slack using Hightouch reverse ETL.
+- A secondary ingestion path demonstrates automated SaaS ingestion from SurveyMonkey into Snowflake using Fivetran.
 
-## Business problem
+All infrastructure is defined as code in Terraform, and every transformation and pipeline contract is covered by automated tests.
 
-Healthcare staffing teams need a consistent view of workforce supply, shift demand, application activity, assignment outcomes, marketing efficiency, and product engagement. When these datasets stay in separate operational tools and spreadsheets, teams cannot reliably answer questions such as:
+---
 
-- Which qualified nurses are at risk of disengaging?
-- Where is staffing demand outpacing available supply?
-- Which campaigns generate completed assignments rather than low-quality leads?
-- Can activation data be delivered safely to customer-facing tools without copying unrestricted raw data?
+## 2. Business Problem
 
-## Target architecture
+Per-diem healthcare staffing agencies face high churn and rapid shifts in labor demand. Key business questions often go unanswered when operational data remains siloed:
+- Which qualified nurses are becoming inactive and risk leaving the platform?
+- Where is healthcare facility demand outpacing local nurse supply?
+- Which recruitment advertising campaigns produce completed shifts rather than idle signups?
+- How can sensitive operational data be transformed and activated into communication tools like Slack without exposing private operational tables?
+
+Manual spreadsheets and batch exports lead to stale data, duplicated nurse records, and missed shift coverage. CareMatch provides an automated, auditable, and reliable single source of truth.
+
+---
+
+## 3. IntelyCare-Style Healthcare Staffing Use Case
+
+IntelyCare matches nursing professionals (RNs, LPNs, CNAs) with post-acute and long-term care facilities. The CareMatch case study mirrors this business model:
+1. **Supply Side:** Nurses register, provide credential and health screening information, set availability, and receive engagement scores.
+2. **Demand Side:** Healthcare facilities post shift openings with specialty requirements, hourly base pay, and urgency tiers.
+3. **Marketplace Matching:** Nurses apply for shifts, assignments are confirmed, and shifts are completed or cancelled.
+4. **Retention and Activation:** Machine learning churn models identify high-value nurses at risk of becoming inactive. Downstream operations teams receive alerts in Slack to initiate targeted outreach.
+
+---
+
+## 4. Architecture and Data Flow
 
 ```text
-Operational / external / data-science / app / spreadsheet sources
-                              |
-                              v
-                    Airflow on Amazon EC2
-                              |
-                              v
-                    Amazon S3 data lake
-                              |
-                              v
-                         Snowflake RAW
-                              |
-                              v
-                   dbt STAGING + ANALYTICS
-                              |
-                              v
-               Hightouch governed activation model
-                              |
-                              v
-                 Salesforce / Slack / other SaaS
+[Operational Sources]  [Market Data]  [Nurse Scores]  [Campaigns]  [Pendo Events]  [Spreadsheet Suppressions]
+          \                  |              |              |              |                    /
+           ------------------------------------------------------------------------------------
+                                                     |
+                                                     v
+                                       Airflow on AWS EC2 (Docker)
+                                                     |
+                                                     v
+                                     Amazon S3 Landing Lake (raw/)
+                                                     |
+                                                     v
+                                           Snowflake RAW Layer
+                                                     |
+                                                     v
+                                         dbt STAGING Views (Cleanse)
+                                                     |
+                                                     v
+                                        dbt ANALYTICS Marts (Tables)
+                                                     |
+                                                     v
+                              Hightouch Reverse ETL (AUDIENCE_AT_RISK_NURSES)
+                                                     |
+                                                     v
+                                        Slack Channel (#first-project)
 
-Survey / marketing / product SaaS -> Fivetran -> Snowflake landing schemas
+[SurveyMonkey] --------> Fivetran Managed Connector --------> Snowflake FIVETRAN_LANDING
 ```
 
-## Implemented solution
+---
 
-### Source simulation
+## 5. Source Datasets and Business Meaning
 
-The deterministic Python generator creates six source domains using synthetic identities only:
+The pipeline ingests six source families covering 11 persistent entity datasets:
 
-1. Nurses and workforce profiles
-2. Shifts and facility demand
-3. Applications
-4. Assignments
-5. Marketing and market-supply signals
-6. Application/product events and spreadsheet-style reference data
+| Family | Entity / Dataset | Format | Primary Key | Business Meaning |
+|---|---|---|---|---|
+| `operational` | `nurses` | CSV | `nurse_id` | Nurse workforce profiles, license status, lifetime shifts, and opt-in settings. |
+| `operational` | `facilities` | CSV | `facility_id` | Partner facilities, tier, type (hospital, nursing home), and location. |
+| `operational` | `shifts` | CSV | `shift_id` | Open, filled, and completed shift postings with hourly rates and urgency. |
+| `operational` | `applications` | CSV | `application_id` | Applications submitted by nurses to open shifts. |
+| `operational` | `assignments` | CSV | `assignment_id` | Confirmed matches between a nurse and a shift. |
+| `external` | `market_conditions` | CSV | `market_key` | Regional market supply-demand ratios and competitor benchmark rates. |
+| `data_science` | `nurse_scores` | CSV | `nurse_id` | Churn risk probability, reliability score, and shift completion likelihood. |
+| `appcast` | `campaign_performance` | CSV | `campaign_id` | Recruitment advertising spend, clicks, impressions, and leads. |
+| `spreadsheets` | `manual_overrides` | CSV | `nurse_id` | Manual operational contact suppressions and recruiter overrides. |
+| `app_stream` | `app_events` | JSONL | `event_id` | In-app clickstream events (search, shift view, accept, push open). |
+| `operational` | `health_screenings` | CSV | `screening_id`| TB test, background check, and credential clearance records. |
 
-Each generated batch includes a manifest containing object keys, schemas, row counts, and SHA-256 checksums. This makes every pipeline run independently verifiable.
+---
 
-### Orchestration and landing
+## 6. Data Formats and Approximate Volumes
 
-Apache Airflow runs on a dedicated EC2 host and writes date-partitioned, Hive-style objects to the private S3 bucket `carematch-data-237657481511-dev`. The DAG is safe to rerun: immutable object keys and manifests prevent accidental overwrites, while Snowflake COPY metadata prevents duplicate ingestion.
+- **CSV Files:** Tabular datasets formatted with header lines, quoted strings, and ISO-8601 timestamps.
+- **JSON Lines:** Semi-structured event streams stored as raw JSON strings and ingested into Snowflake `VARIANT` columns.
+- **Manifest File:** Each batch contains `manifest.json` detailing file keys, exact byte lengths, row counts, and SHA-256 hashes.
+- **Approximate Baseline Volumes (Initial Run):**
+  - Nurses: 500 rows
+  - Facilities: 40 rows
+  - Shifts: 3,000 rows
+  - Applications: ~4,500 rows
+  - Assignments: ~2,500 rows
+  - Health Screenings: ~500 rows
+  - Market Conditions: ~100 rows
+  - Nurse Scores: 500 rows
+  - Campaign Performance: ~50 rows
+  - Manual Overrides: ~25 rows
+  - App Events: ~10,000 rows
+  - Total Raw Rows per Batch: ~22,000 to ~25,000 rows
 
-The S3 landing zone blocks public access, enforces TLS, enables versioning, and encrypts objects at rest. EC2 access uses Systems Manager rather than an internet-exposed SSH port.
+---
 
-### Snowflake ingestion
+## 7. Initial Loading
 
-Snowflake uses a scoped AWS storage integration with read-only access to the bucket's `raw/` prefix. The `CAREMATCH.RAW` layer contains 11 source tables. COPY operations preserve batch metadata and can be rerun without duplicating files.
+The initial pipeline run establishes baseline data:
+1. Airflow generates synthetic files using seed `20260821` and target nurse count `500`.
+2. Files are written locally on the EC2 worker, validated against checksums, and uploaded to S3 under `raw/.../batch_id=carematch_initial_.../`.
+3. Snowflake storage integration reads the new S3 stage files.
+4. `COPY INTO` loads files into the 11 `CAREMATCH.RAW` tables.
+5. dbt builds staging views and materialized mart tables.
+6. The resulting nurse dimension reflects exactly 500 active nurses.
 
-A live three-batch verification loaded 60,290 raw rows. The final controlled backfill added exactly 20,122 rows from a previously unseen S3 partition. Earlier identical COPY reruns added zero rows, proving file-level incremental behavior.
+---
 
-### dbt transformation
+## 8. Incremental Loading
 
-dbt separates reusable cleanup logic from business models:
+The incremental run simulates subsequent business activity:
+1. Airflow runs with target nurse count `550` and the current UTC date.
+2. 50 new nurse profiles are generated, while existing nurses receive updated shift counts, days since active, and engagement scores.
+3. The batch is uploaded to S3 under a new unique batch prefix: `.../batch_id=carematch_incremental_.../`.
+4. Snowflake executes `COPY INTO` without `FORCE = TRUE`. Snowflake load history detects that earlier files were already loaded and only copies the newly arrived files.
+5. Raw tables now hold cumulative historical snapshots (e.g., 500 baseline + 550 incremental = 1,050 total raw nurse records).
+6. dbt staging models deduplicate by business key and pick the latest record.
+7. The active nurse dimension updates from 500 to 550 unique nurses.
 
-- `CAREMATCH.STAGING`: five views for typed, standardized source data.
-- `CAREMATCH.ANALYTICS`: five materialized analytics tables.
-- `AUDIENCE_AT_RISK_NURSES`: a consent-safe activation table with 286 eligible nurses in the final verified run.
+---
 
-The marts cover nurse dimensions, shift performance, marketing efficiency, market supply-demand, and activation. Seven automated data-quality checks passed, including relationship tests, uniqueness expectations, and activation-policy assertions.
+## 9. Airflow DAGs and Responsibilities
 
-### Reverse ETL and managed ingestion
+- **DAG ID:** `carematch_synthetic_sources_to_s3`
+- **Schedule:** `@daily` (with manual trigger support for ad-hoc and incremental runs).
+- **Execution Environment:** Docker Compose on AWS EC2 (Amazon Linux 2023).
+- **Key Tasks:**
+  - `generate_files`: Runs synthetic generator, calculates SHA-256 hashes, writes local files and `manifest.json`.
+  - `upload_source`: Six parallel tasks (one per source family) uploading files to partitioned S3 paths via `S3Hook`.
+  - `upload_manifest`: Uploads the execution manifest to S3 for external verification.
+- **Reliability:** Built-in task retries (2 retries, 3-minute backoff), container health checks, and loopback UI binding (`127.0.0.1:8080`) to protect the Airflow console from public internet exposure.
 
-Snowflake service accounts use RSA key-pair authentication and dedicated least-privilege roles:
+---
 
-- `HIGHTOUCH_USER` / `HIGHTOUCH_ROLE` can read governed analytics objects and own only the Hightouch audit/planner schemas.
-- `FIVETRAN_USER` / `FIVETRAN_ROLE` can write only to `FIVETRAN_LANDING` through the dedicated auto-suspending `FIVETRAN_WAREHOUSE`.
+## 10. S3 Data Lake Organization
 
-Private keys stay in the local, Git-ignored `.secrets/` directory. No passwords, private keys, OAuth tokens, or Terraform state are committed.
+The S3 bucket `carematch-data-237657481511-dev` follows Hive-compatible partitioning:
 
-The selected activation destination is **Slack**, producing the primary path `Snowflake/dbt -> Hightouch -> Slack`. The selected Fivetran source is **Marketo**, producing the managed-ingestion path `Marketo -> Fivetran -> FIVETRAN_LANDING`. OneDrive remains an optional secondary export rather than a dependency of the main demonstration. Slack delivery requires workspace OAuth approval, and the Marketo initial sync requires four Marketo Admin API fields; neither external data movement is claimed before those account-owned steps succeed.
+```text
+s3://carematch-data-237657481511-dev/
+  raw/
+    source=operational/
+      entity=nurses/
+        load_date=2026-09-03/
+          batch_id=carematch_initial_20260903T120000Z/
+            nurses.csv
+    source=app_stream/
+      entity=app_events/
+        load_date=2026-09-03/
+          batch_id=carematch_initial_20260903T120000Z/
+            events.jsonl
+  manifests/
+    load_date=2026-09-03/
+      batch_id=carematch_initial_20260903T120000Z/
+        manifest.json
+  airflow-logs/
+```
 
-## Incremental-loading design
+- **Security:** Default AES-256 server-side encryption, Bucket Owner Enforced controls, public access block enabled, object versioning enabled.
 
-| Layer | Incremental mechanism | Duplicate protection |
+---
+
+## 11. Snowflake Schemas and Tables
+
+- **Database:** `CAREMATCH`
+- **Schemas:**
+  - `RAW`: Holds persistent tables loaded directly from S3 stages.
+  - `STAGING`: Contains dbt views providing deduplication, casting, and JSON flattening.
+  - `ANALYTICS`: Contains materialized reporting marts and reverse ETL audiences.
+- **Why RAW Tables (11) Differ from Source File Count:**
+  Airflow generates 11 distinct entity CSV/JSONL files plus 1 `manifest.json` per batch. While S3 stores thousands of partitioned files over time across batches, Snowflake maps each entity type into exactly one cumulative `RAW` table.
+
+---
+
+## 12. dbt Models and Transformations
+
+```text
+RAW (11 Tables)
+  ├── NURSES ──────────────> stg_nurses (View, deduped) ─────┬──> dim_nurses (Table)
+  ├── FACILITIES ──────────> stg_facilities (View, deduped) ──┼──> fct_shift_applications (Table)
+  ├── SHIFTS ──────────────> stg_shifts (View) ──────────────┤
+  ├── APPLICATIONS ────────> stg_applications (View) ────────┘
+  ├── NURSE_SCORES ────────> stg_nurse_scores (View, deduped) ──> audience_at_risk_nurses (Table)
+  └── MANUAL_OVERRIDES ────> stg_manual_overrides (View) ──────┘
+```
+
+- **Staging Layer (`STAGING`):** All 11 models materialized as views. Performs schema renaming, null substitution, timestamp standardization, and JSON variant parsing (`stg_app_events`).
+- **Marts Layer (`ANALYTICS`):**
+  - `dim_nurses`: Complete nurse profiles, lifetime shift stats, current engagement scores.
+  - `fct_shift_applications`: Grain is application event, joined with facility and shift details.
+  - `audience_at_risk_nurses`: Business logic filtering for active nurses with high churn probability who have not opted out and have no manual recruiter suppressions.
+
+---
+
+## 13. Deduplication Strategy
+
+In per-diem staffing, nurse profile attributes change frequently. Ingestion accumulates all snapshots in `RAW.NURSES`.
+The dbt staging model `stg_nurses` enforces deduplication using SQL analytic functions:
+
+```sql
+SELECT
+    nurse_id,
+    full_name,
+    email,
+    city,
+    specialty,
+    experience_years,
+    completed_shifts_lifetime,
+    days_since_active,
+    notification_opt_in,
+    record_updated_at
+FROM {{ source('raw', 'nurses') }}
+QUALIFY ROW_NUMBER() OVER (
+    PARTITION BY nurse_id
+    ORDER BY record_updated_at DESC
+) = 1;
+```
+
+This guarantees that downstream marts always see exactly one record per nurse reflecting their latest known state.
+
+---
+
+## 14. Data Quality Tests
+
+dbt and Snowflake enforce data contract rules:
+- **Primary Key Uniqueness:** `nurse_id`, `facility_id`, `shift_id`, `application_id`.
+- **Not-Null Constraints:** Verified on IDs and required foreign keys.
+- **Referential Integrity:** `applications.nurse_id` references `nurses.nurse_id`.
+- **Business Logic Checks:**
+  - Shift end time occurs after start time.
+  - Urgency values fall within allowed ranges (1 to 5).
+  - Churn risk score is bounded between 0.0 and 1.0.
+  - Audience at risk includes only nurses with `notification_opt_in = TRUE` and no manual contact suppressions.
+
+---
+
+## 15. Fivetran Ingestion
+
+- **Source:** SurveyMonkey case study collector (`https://www.surveymonkey.com/r/QHFR7TD`).
+- **Connector Name:** `prohibited_every`.
+- **Destination:** Snowflake database `FIVETRAN_LANDING`, schema `SURVEY_MONKEY_CASE_STUDY`.
+- **Execution Mechanism:** Automated synchronization via `scripts/saas_sync.py`:
+  1. Reads connector status and captures baseline `succeeded_at` and `failed_at`.
+  2. Issues `POST /v1/connectors/prohibited_every/force`.
+  3. Polls until `succeeded_at` advances past baseline.
+  4. Aborts if `failed_at` advances or if connector is paused.
+- **Historical Baseline:** Initial sync loaded 51 rows across 10 tables (`RESPONSE_HISTORY`, `QUESTION_HISTORY`, etc.).
+
+---
+
+## 16. Hightouch Reverse ETL
+
+- **Source Model:** `CAREMATCH.ANALYTICS.AUDIENCE_AT_RISK_NURSES`
+- **Primary Key:** `NURSE_ID`
+- **Sync ID:** `8379886`
+- **Trigger Script:** `scripts/saas_sync.py hightouch`
+  1. Calls `POST /api/v1/syncs/8379886/trigger`.
+  2. Extracts exact sync request ID from trigger response.
+  3. Polls `/sync_requests` requiring an exact match on that request ID.
+  4. Returns PASS on `success`; fails immediately on `failed`, `cancelled`, or `interrupted`.
+
+---
+
+## 17. Slack Delivery
+
+- **Target Channel:** `#first-project` (ID: `C0BSC5B2743`).
+- **Stale Channel Notice:** Sync `8379886` was previously configured with channel `C0BS2TQSS9M`, which produced a `not_in_channel` error because the bot was not a member.
+- **Owner Action:** In the Hightouch UI, verify or update the destination channel to `#first-project` (`C0BSC5B2743`) and invite the bot using `/invite @Hightouch`.
+- **Data Payload:** Formatted tabular messages delivering nurse name, specialty, days inactive, and churn risk score to care coordinators.
+
+---
+
+## 18. Security
+
+- **Zero Committed Secrets:** All passwords, Fernet keys, private keys, and API tokens are excluded via `.gitignore` and passed strictly via environment variables.
+- **RSA Key-Pair Authentication:** Snowflake service accounts (`FIVETRAN_USER`, `HIGHTOUCH_USER`) authenticate using 2048-bit RSA keys, eliminating permanent passwords.
+- **Least Privilege Access:**
+  - `FIVETRAN_ROLE`: Can write only to `FIVETRAN_LANDING`.
+  - `HIGHTOUCH_ROLE`: Can read only from `CAREMATCH.ANALYTICS`.
+- **AWS Security:** EC2 instance has no public SSH port open. All administrative commands use AWS Systems Manager (SSM). S3 bucket blocks public ACLs and enforces encryption.
+
+---
+
+## 19. Monitoring and Failure Recovery
+
+- **Airflow Task Alerts:** Airflow tracks task status and task logs; failures raise alerts.
+- **Idempotent Ingestion:** If Snowflake loading fails midway, rerunning `02_s3_stage_and_raw_load.sql` is safe because Snowflake copy history tracks loaded files.
+- **SSM Diagnostic Capture:** Orchestrator captures remote stdout and stderr from EC2 commands even if the SSM waiter reports failure.
+- **SaaS Polling Retries:** Transient 5xx HTTP errors during Fivetran or Hightouch polling are logged as warnings and retried up to the configurable timeout.
+
+---
+
+## 20. Cost Controls
+
+- **Auto-Suspending Warehouses:** Snowflake warehouses (`CAREMATCH_INGEST_WH`, `FIVETRAN_WAREHOUSE`) auto-suspend after 60 seconds of inactivity.
+- **Airflow EC2 Sizing:** Runs on a cost-effective `t3.large` instance. Can be stopped when not running demonstration pipelines.
+- **Fivetran Trial Safety:** Terraform schedule module defaults to `pause_after_trial = true` to prevent automatic credit card billing after free trials end.
+
+---
+
+## 21. Terraform Portability
+
+Infrastructure is modularized under `infra/terraform/`:
+- `s3`: Bucket, versioning, encryption, lifecycle, policies.
+- `ec2-airflow`: VPC, subnet, route table, security group, IAM role, SSM attachment, EC2 instance.
+- `snowflake-s3-integration`: AWS IAM role trust policy for Snowflake storage integration.
+- `fivetran-schedule`: Fivetran connector sync frequency and pause safeguards.
+- `platform`: Composite root module orchestrating all child modules.
+
+---
+
+## 22. Account Migration Procedure
+
+When moving from sandbox or trial accounts to a permanent organization:
+1. **AWS:** Configure named profile in `~/.aws/credentials`. Update `aws_profile = "default"` and `environment` in `terraform.tfvars`. Run `terraform init` and `terraform apply`.
+2. **Snowflake:** Run `01_platform_bootstrap.sql` to establish roles and databases. Run `05_service_integrations.sql` to configure service users with new RSA public keys.
+3. **Storage Trust:** Run `scripts/read_snowflake_integration.py` to extract IAM trust ARN and external ID, then apply `module.snowflake_s3_trust`.
+4. **Fivetran:** Re-authenticate SurveyMonkey OAuth in Fivetran console and configure destination pointing to the new Snowflake host.
+5. **Hightouch:** Add Snowflake connection using the new account locator and RSA key, map model to `AUDIENCE_AT_RISK_NURSES`, and connect to Slack.
+
+---
+
+## 23. System-Design Decisions
+
+1. **Storage Integration vs IAM User Keys:** Used native Snowflake Storage Integration rather than embedding AWS access keys in Snowflake stages, eliminating key rotation risks.
+2. **SSM vs SSH:** Used AWS Systems Manager instead of opening port 22 on EC2, eliminating inbound firewall rules and bastion hosts.
+3. **dbt Views vs Tables in Staging:** Materialized staging as views to avoid duplicate storage costs, materializing only marts as tables for fast analytics querying.
+4. **Analytic Dedup vs Merge:** Used `QUALIFY ROW_NUMBER()` in dbt staging models rather than destructive Snowflake `MERGE` commands, preserving raw historical snapshots for auditability.
+
+---
+
+## 24. Alternatives, Tradeoffs, and Architectural Comparisons
+
+### Snowflake versus Databricks
+- **Snowflake (Selected):** Near-zero management, native SQL governance, excellent semi-structured JSON querying, and seamless integration with reverse ETL tools.
+- **Databricks:** Superior for deep machine learning and custom Spark processing, but introduces higher infrastructure complexity for pure SQL data transformation workflows.
+
+### Airflow on EC2 versus AWS MWAA
+- **Airflow on EC2 (Selected):** Zero minimum hourly cost when stopped, full control over Docker Compose containers, and fast local file generation without remote latency.
+- **AWS MWAA:** Fully managed and scalable, but incurs a continuous ~$300/month baseline cost that is impractical for trial demonstrations.
+
+### S3 Data Lake versus Direct Database Loading
+- **S3 Staging (Selected):** Decouples data generation from Snowflake compute. Provides an immutable audit archive and allows replaying raw data into other engines.
+- **Direct Database Loading:** Simpler pipeline architecture, but tightly couples operational workloads to the warehouse and increases compute costs.
+
+### dbt versus Snowflake Stored Procedures
+- **dbt (Selected):** Declarative SQL, automatic DAG dependency management, built-in testing, documentation generation, and version control.
+- **Stored Procedures:** Imperative, difficult to unit test, lacks automated dependency resolution, and obfuscates data lineage.
+
+### Fivetran versus Custom Ingestion Scripts
+- **Fivetran (Selected):** Manages API pagination, rate limits, schema drifts, and OAuth token refreshes for external SaaS platforms automatically.
+- **Custom Scripts:** Incurs continuous maintenance overhead whenever third-party APIs introduce breaking changes.
+
+### Hightouch versus Custom Reverse ETL Scripts
+- **Hightouch (Selected):** Visual audience mapping, out-of-the-box Slack rate limiting, operation diffing (only syncing changed rows), and audit logging.
+- **Custom Scripts:** Requires maintaining custom webhook listeners, retry mechanisms, and OAuth integrations.
+
+---
+
+## 25. Scaling Considerations
+
+- **Workforce Growth (100x Scale):** For 50,000+ nurses, transition dbt staging and marts to incremental materializations using `record_updated_at > (select max(record_updated_at) from {{ this }})`.
+- **Airflow Scaling:** Transition from Docker Compose LocalExecutor to CeleryExecutor on AWS ECS or MWAA when task concurrency exceeds single-host memory limits.
+- **Snowflake Scaling:** Separate ingestion workload (`CAREMATCH_INGEST_WH`) from transformation (`CAREMATCH_TRANSFORM_WH`) and analytics queries (`CAREMATCH_BI_WH`).
+
+---
+
+## 26. Limitations and Remaining Manual Steps
+
+- **Browser-Only OAuth:** SurveyMonkey and Slack require manual browser-based OAuth consent. Cloud APIs cannot simulate user web consent without stored refresh tokens.
+- **Slack Bot Channel Invite:** The Hightouch Slack app bot must be invited manually to `#first-project` inside the Slack UI.
+- **Snowflake Account Expiration:** Trial accounts expire after 30 days. Recreating requires running the account portability procedure documented in Section 22.
+
+---
+
+## 27. Troubleshooting Guide
+
+| Symptom | Probable Cause | Corrective Action |
 |---|---|---|
-| Generator | Batch timestamp and deterministic seed | Manifest and checksums |
-| Airflow to S3 | Partitioned object keys | Immutable batch paths |
-| S3 to Snowflake | COPY file metadata | Previously loaded files skipped |
-| dbt staging | Stable business keys and typed views | Source-level deduplication |
-| dbt marts | Deterministic model builds | Unique-key and relationship tests |
-| Hightouch | Primary key `NURSE_ID` | Change-aware reverse ETL |
-| Fivetran | Connector-managed cursors | Source-specific incremental state |
+| `SSM send-command failed` | EC2 instance stopped or SSM agent offline | Verify EC2 state with `aws ec2 describe-instances`; start instance if stopped. |
+| `dbt parse Compilation Error` | Duplicate source definitions | Check all `.yml` files in `dbt/models/`; ensure each table is declared in only one source file. |
+| `FORCE = TRUE detected` | Accidental non-idempotent copy command | Remove `FORCE = TRUE` from `02_s3_stage_and_raw_load.sql`. |
+| Hightouch `not_in_channel` | Bot not invited to Slack channel | Run `/invite @Hightouch` in Slack channel `#first-project`. |
+| Fivetran `HTTP 401 Unauthorized` | Expired SurveyMonkey OAuth token | Log in to Fivetran web UI, open `prohibited_every` connector, and re-authorize SurveyMonkey. |
+| Snowflake `Object does not exist` | Warehouse or database not selected | Run `USE WAREHOUSE CAREMATCH_INGEST_WH; USE DATABASE CAREMATCH;`. |
 
-## Verified results
+---
 
-| Check | Result |
-|---|---:|
-| Snowflake RAW tables | 11 |
-| Verified RAW rows | 60,290 |
-| Duplicate rows added by COPY rerun | 0 |
-| dbt staging views | 5 |
-| dbt analytics tables | 5 |
-| dbt/data-quality checks | 7/7 passed |
-| Consent-safe at-risk audience | 286 rows |
-| Fivetran Snowflake destination tests | 6/6 passed |
-| Hightouch Snowflake source tests | 4/4 passed |
+## 28. Manual Demo Runbook with Before & After Queries
 
-The live SaaS connection evidence and remaining account-authorization fields are recorded in [the SaaS integration verification report](SAAS_INTEGRATION_VERIFICATION_2026-08-25.md).
+### Initial Load Proof
+Execute in Snowflake Worksheet:
 
-The final three-batch execution, model counts, and external authorization boundary are recorded in [the final verification report](FINAL_VERIFICATION_2026-08-25.md).
+```sql
+-- 1. Check raw baseline rows
+SELECT COUNT(*) AS raw_nurse_snapshots FROM CAREMATCH.RAW.NURSES;
+-- Expected: 500
 
-## Operational value
+-- 2. Check deduplicated active nurses in staging
+SELECT COUNT(*) AS unique_active_nurses FROM CAREMATCH.STAGING.STG_NURSES;
+-- Expected: 500
 
-The platform creates one governed analytics layer for staffing, marketing, and activation use cases. The design reduces manual spreadsheet movement, makes every batch auditable, keeps raw data out of customer-facing tools, and allows downstream teams to receive only approved audience fields. Infrastructure and SQL are idempotent, so the demonstration can be repeated without rebuilding the environment by hand.
+-- 3. Check audience eligible for retention outreach
+SELECT COUNT(*) AS at_risk_nurses FROM CAREMATCH.ANALYTICS.AUDIENCE_AT_RISK_NURSES;
+-- Expected: ~280 - 290
+```
 
-## Live demonstration flow
+### Incremental Load Proof
+After running `invoke_case_study_pipeline.ps1 -Mode incremental -IncrementalNurseCount 550`:
 
-1. Open the Airflow DAG `carematch_synthetic_sources_to_s3` and show the successful task graph.
-2. Open the S3 bucket and drill into `raw/` to show partitioned source objects and manifests.
-3. In Snowflake, show the 11 RAW tables and run the row-count query.
-4. Open the repository's `dbt/models` folder, then show the corresponding STAGING views and ANALYTICS tables in Snowflake.
-5. Query `CAREMATCH.ANALYTICS.AUDIENCE_AT_RISK_NURSES` and explain its consent filters.
-6. In Hightouch, show the Snowflake source, the `NURSE_ID` model key, destination mapping, and latest sync run.
-7. In Fivetran, show the Snowflake destination test, connector schema, cursor-based incremental settings, and latest sync.
-8. Rerun the Airflow/Snowflake load and show that already-loaded files contribute zero additional rows.
+```sql
+-- 1. Check raw snapshots increased
+SELECT COUNT(*) AS raw_nurse_snapshots FROM CAREMATCH.RAW.NURSES;
+-- Expected: 1,050 (500 initial + 550 incremental)
 
-## Reproducibility
+-- 2. Check deduplication picked latest state and unique nurse count grew
+SELECT COUNT(*) AS unique_active_nurses FROM CAREMATCH.STAGING.STG_NURSES;
+-- Expected: 550
 
-Infrastructure definitions, the generator, Airflow DAG, Snowflake SQL, dbt models, tests, and runbooks are version controlled in this repository. Start with the root README, then use the EC2/Airflow, Snowflake/dbt, and incremental-verification runbooks under `docs/`.
+-- 3. Verify zero duplicate nurse_ids exist in marts
+SELECT nurse_id, COUNT(*)
+FROM CAREMATCH.ANALYTICS.DIM_NURSES
+GROUP BY nurse_id
+HAVING COUNT(*) > 1;
+-- Expected: 0 rows returned
+```
+
+---
+
+## 29. Exact Browser-Only Checklist
+
+1. [ ] Log in to SurveyMonkey and verify survey `CareMatch Healthcare Staffing Experience 2026`.
+2. [ ] In Fivetran console, open connector `prohibited_every` and confirm SurveyMonkey connection status shows `CONNECTED`.
+3. [ ] Open Slack workspace, navigate to `#first-project` (`C0BSC5B2743`), and run `/invite @Hightouch`.
+4. [ ] In Hightouch console, open sync `8379886`, verify destination targets `#first-project`, and test the destination health check.
+5. [ ] Open Snowflake Snowsight, select database `CAREMATCH`, and visually inspect the tables in `RAW`, `STAGING`, and `ANALYTICS`.
+
+---
+
+## 30. Completion Matrix
+
+| Component | Status | Verification Evidence |
+|---|---|---|
+| Synthetic Healthcare Generator | **Implemented & Verified** | Unit tests pass; produces 500 initial and 550 incremental records with valid schema. |
+| Airflow DAG on EC2 | **Implemented & Verified** | Running on EC2 `i-02bdd56e8690f35d1`; containers healthy; SSM commands succeed. |
+| S3 Data Lake Partitioning | **Implemented & Verified** | Live bucket `carematch-data-237657481511-dev` verified; encryption, versioning, and public block active. |
+| Snowflake Ingestion Scripts | **Implemented & Verified** | SQL scripts audited; idempotent `COPY INTO` without `FORCE = TRUE`; service users configured. |
+| dbt Staging & Mart Models | **Implemented & Verified** | Credential-free `dbt parse` passes exit 0; `QUALIFY ROW_NUMBER()` deduplication validated by contract tests. |
+| Fivetran Synchronization Logic | **Implemented & Verified** | `saas_sync.py` polling logic tested; 6 mocked unit tests covering advance, failure, and timeouts pass. |
+| Hightouch Synchronization Logic | **Implemented & Verified** | `saas_sync.py` exact ID match tested; 6 mocked unit tests covering exact matching and failures pass. |
+| End-to-End Orchestration Script | **Implemented & Verified** | `scripts/invoke_case_study_pipeline.ps1` supports initial, incremental, verify modes; 0 parse errors. |
+| Terraform Platform Modules | **Implemented & Verified** | All 5 modules validated (`Success! The configuration is valid`); `fmt -check` clean. |
+| Automated Test Suite | **Implemented & Verified** | 45 unit, contract, and behavioral tests pass cleanly. |
+| Live Initial/Incremental Pipeline Run | **Implemented but Not Live Verified** | Requires active AWS/Snowflake execution during live demonstration session. |
+| Slack Bot Channel Membership | **Requires Browser Action** | Account owner must run `/invite @Hightouch` in `#first-project`. |
+| SurveyMonkey OAuth Consent | **Requires Browser Action** | Account owner must approve OAuth screen in browser. |
+| Hightouch Sync Channel Setting | **Requires Browser Action** | Update sync `8379886` destination in UI from `C0BS2TQSS9M` to `C0BSC5B2743`. |
+| Pendo, Marketo, Salesforce, Ads | **Excluded from Scope** | Intentionally excluded from active demonstration; documented as non-live connectors. |

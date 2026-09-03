@@ -80,12 +80,18 @@ exit 1
 "@
     $parameters = @{ commands = @($remoteCommand) } | ConvertTo-Json -Compress
     Write-Host "[Airflow] Sending SSM command to instance $instanceId..."
-    $commandId = aws ssm send-command `
-        --profile $AwsProfile --region $AwsRegion `
-        --instance-ids $instanceId `
-        --document-name AWS-RunShellScript `
-        --parameters $parameters `
-        --query Command.CommandId --output text 2>&1
+    $tempParamFile = [System.IO.Path]::GetTempFileName()
+    try {
+        [System.IO.File]::WriteAllText($tempParamFile, $parameters, [System.Text.UTF8Encoding]::new($false))
+        $commandId = aws ssm send-command `
+            --profile $AwsProfile --region $AwsRegion `
+            --instance-ids $instanceId `
+            --document-name AWS-RunShellScript `
+            --parameters "file://$tempParamFile" `
+            --query Command.CommandId --output text 2>&1
+    } finally {
+        if (Test-Path $tempParamFile) { Remove-Item $tempParamFile -Force }
+    }
     if ($LASTEXITCODE -ne 0 -or -not $commandId) {
         throw "Airflow SSM send-command failed: $commandId"
     }
