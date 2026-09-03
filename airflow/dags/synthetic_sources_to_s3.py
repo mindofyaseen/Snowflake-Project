@@ -12,7 +12,7 @@ from airflow.exceptions import AirflowException
 from airflow.providers.amazon.aws.hooks.s3 import S3Hook
 
 sys.path.insert(0, "/opt/carematch")
-from src.generate_healthcare_data import generate  # noqa: E402
+from src.generate_healthcare_data import build_s3_raw_key, generate, sanitize_batch_id  # noqa: E402
 
 
 SOURCE_FAMILIES = (
@@ -63,7 +63,7 @@ def synthetic_sources_to_s3():
             raise AirflowException("nurse_count must be between 1 and 5000")
 
         raw_run_id = dag_run.run_id if dag_run else context["run_id"]
-        batch_id = re.sub(r"[^A-Za-z0-9_-]+", "_", raw_run_id).strip("_")
+        batch_id = sanitize_batch_id(raw_run_id)
         run_root = GENERATED_ROOT / run_date.isoformat() / batch_id
         manifest = generate(
             root=run_root,
@@ -100,8 +100,7 @@ def synthetic_sources_to_s3():
         uploaded = []
         for entry in selected:
             local_file = root / entry["object_key"]
-            path, filename = entry["object_key"].rsplit("/", 1)
-            key = f"raw/{path}/batch_id={payload['batch_id']}/{filename}"
+            key = build_s3_raw_key(entry["object_key"], payload["batch_id"])
             hook.load_file(filename=str(local_file), key=key, bucket_name=bucket, replace=True)
             remote_size = hook.get_key(key=key, bucket_name=bucket).content_length
             if remote_size != entry["bytes"]:

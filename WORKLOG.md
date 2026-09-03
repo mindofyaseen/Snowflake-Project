@@ -1,318 +1,166 @@
-﻿# CareMatch Pipeline – Work Log
+# CareMatch Pipeline - Comprehensive Audit and Correction Work Log
 
-This file is maintained by the AI agent working on this repository.
-It records every task, what was done, errors encountered, and how they were fixed.
-Codex or any downstream reviewer can read this to understand exactly what changed and why.
-
----
-
-## Session: 2026-09-03 (UTC+5)
-
-### Objective
-Complete a 10-task code-only audit and improvement of the CareMatch
-`intelycare-snowflake` pipeline repository. No live cloud resources are touched.
+This log documents all audit findings, initial implementations, reviewer-identified defects,
+corrections, test results, and validation procedures.
 
 ---
 
-## Task 1 – Repository Audit
+## 1. Summary of Correction Pass (Commit Review & Fixes)
 
-**What was done:**
-- Read `README.md`, all docs under `docs/`, every script in `scripts/`,
-  all Terraform modules under `infra/terraform/`, all dbt models, and all tests.
-- Read both live Terraform state files to extract resource IDs
-  (bucket `carematch-data-237657481511-dev`, EC2 `i-02bdd56e8690f35d1`).
+During review of commit `2f7455a`, several important defects were identified and corrected:
 
-**Issues found:**
+1. **Duplicate dbt Sources & Incorrect "Missing File" Claim:**
+   - *Mistake:* Commit `2f7455a` claimed `sources.yml` was missing and introduced `dbt/models/staging/sources.yml`. However, the repository already contained canonical source definitions in `dbt/models/sources.yml`. The duplicate file caused dbt compiler failure (`Compilation Error: dbt found two sources with the name 'raw_nurses'`).
+   - *Fix:* Merged all column descriptions into the canonical `dbt/models/sources.yml`, preserving all existing tests. Deleted `dbt/models/staging/sources.yml`. Added automated duplicate detection and credential-free `dbt parse` validation using a temporary mock profile.
 
-| # | File | Problem |
-|---|------|---------|
-| 1 | `dbt/models/staging/sources.yml` | **Completely missing.** All staging models reference `source('raw', ...)` but no `sources.yml` existed. `dbt compile` and all downstream analytics models would fail without credentials even being needed. |
-| 2 | `scripts/invoke_case_study_pipeline.ps1` – `Invoke-FivetranSync` | Fire-and-forget POST with no polling, no success/failure check, errors swallowed by `Out-Null`. |
-| 3 | `scripts/invoke_case_study_pipeline.ps1` – `Invoke-HightouchSync` | Same – fire-and-forget, no polling, no status output. |
-| 4 | `scripts/invoke_case_study_pipeline.ps1` – SSM output | `aws ssm wait` exit code was checked but output was never captured/printed. Silent on pass. |
-| 5 | `.gitignore` | Missing entries: `airflow/.env`, `terraform.tfvars` (non-example), `dbt/packages.yml`. |
-| 6 | Tests | No tests covering 500/550 nurse counts, S3 batch-path uniqueness, Snowflake COPY idempotency, dbt QUALIFY dedup logic, missing SaaS env vars. |
-| 7 | `docs/FULL_AUTOMATION_RUNBOOK.md` | No env var table, no flag reference, no SaaS polling documentation, no note that `verify` mode is read-only. |
-| 8 | `docs/` – Terraform migration | No `terraform import` procedure for consolidating separate S3 and EC2 states into the composite `platform` state. |
-| 9 | `infra/terraform/platform/versions.tf` | `required_version >= 1.6.0` but child module `ec2-airflow` requires `>= 1.8.0`. Floor inconsistency. |
-| 10 | `dbt/profiles.yml.example` | Only password auth documented; key-pair auth (production-preferred) not shown. |
+2. **dbt Package Handling & `.gitignore` Correction:**
+   - *Mistake:* `dbt/packages.yml` was added to `.gitignore` under the assumption that it was a lock file. In dbt, `packages.yml` is source configuration.
+   - *Fix:* Removed `dbt/packages.yml` from `.gitignore`. Confirmed the project has no external package dependencies. Updated `scripts/invoke_case_study_pipeline.ps1` to check for `packages.yml` and skip `dbt deps` cleanly when absent rather than failing.
+
+3. **Encoding Damage (UTF-8 BOM Removal):**
+   - *Mistake:* Several files committed in `2f7455a` were saved with a UTF-8 Byte Order Mark (`0xEF, 0xBB, 0xBF`).
+   - *Fix:* Stripped BOM from all modified/created files (`.gitignore`, `WORKLOG.md`, `dbt/models/sources.yml`, `dbt/profiles.yml.example`, `docs/FULL_AUTOMATION_RUNBOOK.md`, `docs/TERRAFORM_MIGRATION.md`, `infra/terraform/platform/versions.tf`, `scripts/invoke_case_study_pipeline.ps1`, `tests/test_pipeline_contract.py`). Verified with automated scan (`Has BOM: False` across all files).
+
+4. **Fivetran Polling API Contract:**
+   - *Mistake:* Previous implementation polled `status.sync_state` for `"connected"`, which is not a reliable completion indicator for a newly triggered sync.
+   - *Fix:* Implemented `scripts/saas_sync.py` with baseline timestamp capture (`succeeded_at`, `failed_at`) prior to `/force` trigger. Polling checks whether `succeeded_at` has advanced past baseline. Handles `failed_at` advancement, non-runnable states (`paused`, `rescheduled`), transient network errors (retried until timeout), and supports configurable timeout and poll interval parameters.
+
+5. **Hightouch Polling API Contract:**
+   - *Mistake:* Previous implementation silently fell back to the first sync request if the triggered request ID was not found.
+   - *Fix:* Implemented exact sync request ID matching. If the triggered request ID is missing or not present in `/sync_requests` response, it raises a clear error. Explicitly handles `success`, `failed`, `cancelled`, and `interrupted` states.
+
+6. **Behavioral Testing & Production Function Testing:**
+   - *Mistake:* Tests previously relied on weak text matching or duplicated the batch-ID algorithm inside the test. The `FORCE = TRUE` test stripped all spaces before searching for `"FORCE = TRUE"`, which could never detect matches.
+   - *Fix:*
+     - Implemented case-insensitive regex check `FORCE\s*=\s*TRUE` and added a test proving the regex matches various whitespace configurations.
+     - Exported production functions `sanitize_batch_id` and `build_s3_raw_key` from `src/generate_healthcare_data.py` and imported them in `airflow/dags/synthetic_sources_to_s3.py`. Tests verify these exact production functions.
+     - Added 12 mocked behavioral tests covering Fivetran and Hightouch sync success, remote failure, timeouts, transient errors, paused state, and missing environment variables.
+     - Added dbt source duplicate detection and `dbt parse` compiler validation.
+
+7. **Terraform Migration Guide Accuracy:**
+   - *Mistake:* Previous guide referenced `carematch-dev` AWS profile, omitted IAM associations, and suggested deleting state files on rollback.
+   - *Fix:* Rewrote `docs/TERRAFORM_MIGRATION.md` using the exact resource list and addresses extracted from read-only `terraform state list` on `infra/terraform/s3/terraform.tfstate` and `infra/terraform/ec2-airflow/terraform.tfstate`. Configured AWS profile to `default`. Included all IAM roles, policies, associations, subnet associations, and endpoints. Documented explicit no-destroy plan safeguards and safe state backup/rollback procedures. Explicitly noted the guide has not been executed live.
+
+8. **PowerShell Orchestration Script Reliability:**
+   - Verified initial and incremental modes work with explicit `-AirflowInstanceId` and `-S3BucketName`.
+   - Verified `verify` mode does not query Terraform platform outputs when `-S3BucketName` is supplied.
+   - Verified SSM waiter failures retrieve full diagnostic command output before raising an error.
+   - Configurable `-SaasTimeoutSeconds` and `-SaasPollIntervalSeconds` exposed as parameters.
+   - Ensured no secrets are logged.
 
 ---
 
-## Task 2 – Create `dbt/models/staging/sources.yml`
+## 2. Test Execution and Verification Results
 
-**File:** `dbt/models/staging/sources.yml` [NEW]
-
-**What was done:**
-Wrote a full dbt v2 sources declaration covering all 11 RAW tables:
-`nurses`, `facilities`, `shifts`, `applications`, `assignments`,
-`health_screenings`, `market_conditions`, `nurse_scores`,
-`campaign_performance`, `app_events`, `manual_overrides`.
-
-**Why this matters:**
-Without this file dbt cannot resolve any `{{ source('raw', 'X') }}` Jinja reference.
-Every staging model and mart would fail at `dbt compile` (credential-free step)
-and `dbt build`. This was the highest-impact single fix in the audit.
-
-**Errors encountered:** None – created fresh file.
-
----
-
-## Task 3 – Improve `scripts/invoke_case_study_pipeline.ps1`
-
-**File:** `scripts/invoke_case_study_pipeline.ps1` [MODIFIED]
-
-**What was done:**
-
-### Fivetran polling (`Invoke-FivetranSync`)
-- Added `$missing` array that collects all absent env vars before throwing a
-  single descriptive error (instead of the old implicit null-string error).
-- Added POST call wrapped in `try/catch` with explicit error message.
-- Added 30-minute polling loop (30-second intervals) querying
-  `GET /v1/connectors/:id` and reading `status.sync_state`.
-- Reports elapsed time and final state on every check.
-- Throws FAIL on `broken`, `incomplete`, `paused` terminal states.
-- Prints `[Fivetran] PASS` on `connected`.
-
-### Hightouch polling (`Invoke-HightouchSync`)
-- Same missing-var guard pattern.
-- Captures `syncRequestId` from trigger response.
-- Polls `GET /api/v1/syncs/:id/sync_requests` (30-minute timeout, 30-second interval).
-- Throws FAIL on `failed`, `interrupted`, `cancelled`.
-- Prints `[Hightouch] PASS` on `success`.
-
-### SSM output (`Invoke-AirflowBatch`)
-- Captures SSM command status and stdout/stderr via
-  `get-command-invocation` query with `ConvertFrom-Json`.
-- Prints `[Airflow] SSM status`, stdout, and stderr.
-- Throws with status string in the error message.
-- Prints `[Airflow] PASS` when DAG succeeds.
-
-### General
-- Added `Write-Host "[Pipeline] Starting …"` and `PASS` lines for
-  each major step so the operator can see progress without reading AWS CLI output.
-
-**Error encountered during implementation:**
+### A. Python Unit Tests
+Command:
+```powershell
+python -m unittest discover -s tests -v
 ```
-ERROR: At scripts\invoke_case_study_pipeline.ps1:70 char:19
-+   echo "  attempt $attempt: DAG state=$state"
-Variable reference is not valid. ':' was not followed by a valid variable name character.
+Result:
 ```
-The PowerShell parser interpreted `$attempt:` (colon immediately after variable
-name) inside the double-quoted here-string as an invalid scope modifier.
-
-**Fix applied:**
-Replaced `$attempt:` and `$state` with `${attempt}` and `${state}` in the
-bash `echo` line inside the here-string. Bash interprets these identically;
-PowerShell no longer flags the ambiguity.
-
----
-
-## Task 4 – Create `tests/test_pipeline_contract.py`
-
-**File:** `tests/test_pipeline_contract.py` [NEW]
-
-**What was done:**
-Added 28 total tests (14 existing + 14 new in this file → counted as 28 total).
-Actually: 8 logical scenarios with multiple assertion methods = 14 new test methods:
-
-| Test class | Test method | What it verifies |
-|---|---|---|
-| `InitialLoad500NursesTest` | `test_initial_load_produces_500_nurses` | Generator manifest shows exactly 500 nurse rows |
-| `IncrementalLoad550NursesTest` | `test_incremental_load_produces_550_nurses` | Generator manifest shows exactly 550 nurse rows |
-| `IncrementalLoad550NursesTest` | `test_incremental_nurses_have_distinct_ids` | All 550 nurse_ids are unique (no duplicates) |
-| `UniqueBatchPathTest` | `test_same_day_runs_produce_unique_batch_ids` | Different run IDs → different batch IDs |
-| `UniqueBatchPathTest` | `test_batch_id_embedded_in_object_key` | S3 object keys use Hive-style `source=`/`entity=`/`load_date=` partitions |
-| `SnowflakeIdempotentLoadTest` | `test_load_sql_has_no_force_true` | `02_s3_stage_and_raw_load.sql` has no `FORCE = TRUE` |
-| `SnowflakeIdempotentLoadTest` | `test_load_sql_uses_copy_into` | Load SQL contains `COPY INTO` statements |
-| `DbtDeduplicationContractTest` | `test_qualify_row_number_present` | `stg_nurses.sql` uses `QUALIFY ROW_NUMBER()` |
-| `DbtDeduplicationContractTest` | `test_partitioned_by_nurse_id` | Dedup window is `PARTITION BY nurse_id` |
-| `DbtDeduplicationContractTest` | `test_orders_by_record_updated_at_desc` | Latest-record selection uses `ORDER BY record_updated_at DESC` |
-| `DbtDeduplicationContractTest` | `test_sources_yml_declares_nurses_table` | `sources.yml` exists and declares `nurses` |
-| `MissingEnvVarTest` | `test_pipeline_script_checks_fivetran_apikey` | Script checks all 3 Fivetran vars and uses `$missing` pattern |
-| `MissingEnvVarTest` | `test_pipeline_script_checks_hightouch_api_key` | Script checks both Hightouch vars |
-| `MissingEnvVarTest` | `test_run_snowflake_sql_raises_on_unresolved_token` | `run_snowflake_sql.py` raises `RuntimeError` on `__CAREMATCH_` tokens |
-
-**Test run result:**
-```
-Ran 28 tests in 1.909s
+Ran 43 tests in 16.844s
 OK
 ```
-All 28 pass, including all 14 pre-existing tests.
+All 43 tests pass (14 original tests + 29 contract/behavioral tests):
+- `test_compose_binds_ui_to_loopback_only`: OK
+- `test_dag_is_valid_python`: OK
+- `test_initial_and_incremental_modes_have_distinct_defaults`: OK
+- `test_manual_runs_can_select_an_incremental_load_date`: OK
+- `test_runs_default_to_actual_current_utc_date`: OK
+- `test_same_day_runs_use_unique_batch_paths`: OK
+- `test_six_source_families_are_declared`: OK
+- `test_orchestrator_has_separate_load_modes`: OK
+- `test_secrets_are_read_from_environment`: OK
+- `test_snowflake_stage_uses_runtime_bucket`: OK
+- `test_manifest_hashes_and_rows`: OK
+- `test_operational_foreign_keys`: OK
+- `test_reproducible_checksums`: OK
+- `test_synthetic_identity_and_classification`: OK
+- `test_canonical_sources_yml_declares_nurses_table`: OK
+- `test_orders_by_record_updated_at_desc`: OK
+- `test_partitioned_by_nurse_id`: OK
+- `test_qualify_row_number_present`: OK
+- `test_dbt_parse_validates_project_without_credentials`: OK
+- `test_no_duplicate_sources_across_project`: OK
+- `test_missing_environment_variables` (Fivetran): OK
+- `test_paused_state_raises_immediately` (Fivetran): OK
+- `test_remote_failure` (Fivetran): OK
+- `test_successful_completion` (Fivetran): OK
+- `test_timeout` (Fivetran): OK
+- `test_transient_polling_error` (Fivetran): OK
+- `test_cancelled_or_interrupted` (Hightouch): OK
+- `test_missing_environment_variables` (Hightouch): OK
+- `test_remote_failure` (Hightouch): OK
+- `test_successful_completion` (Hightouch): OK
+- `test_timeout` (Hightouch): OK
+- `test_transient_polling_error` (Hightouch): OK
+- `test_triggered_request_not_found` (Hightouch): OK
+- `test_incremental_load_produces_550_nurses`: OK
+- `test_incremental_nurses_have_distinct_ids`: OK
+- `test_initial_load_produces_500_nurses`: OK
+- `test_build_s3_raw_key_structure`: OK
+- `test_sanitize_batch_id_strips_unsafe_characters`: OK
+- `test_sanitize_batch_id_uniqueness`: OK
+- `test_force_regex_detects_various_spacings`: OK
+- `test_load_sql_has_no_force_true`: OK
+- `test_load_sql_uses_copy_into`: OK
+- `test_run_snowflake_sql_raises_on_unresolved_token`: OK
 
-**Errors encountered:** None.
+### B. Credential-Free dbt Parse
+Validated via temporary mock profile in isolated test directory:
+- Exit code: `0`
+- Output: `Running with dbt=1.11.11`, `Registered adapter: snowflake=1.11.6`, `Performance info: ...`
+
+### C. PowerShell Syntax Validation
+Command:
+```powershell
+[System.Management.Automation.Language.Parser]::ParseFile("scripts\invoke_case_study_pipeline.ps1", [ref]$null, [ref]$errors)
+```
+Result:
+`0 parse errors`
+
+### D. Terraform Formatting
+Command:
+```powershell
+terraform fmt -check -recursive infra/terraform
+```
+Result:
+Exit code `0`
+
+### E. Terraform Platform Validation
+Command:
+```powershell
+terraform -chdir=infra/terraform/platform validate
+```
+Result:
+`Success! The configuration is valid.`
+
+### F. UTF-8 BOM Scan
+Command:
+```python
+python -c "..." # checks each modified file for 0xEF 0xBB 0xBF prefix
+```
+Result:
+All modified files: `Has BOM: False`
+
+### G. Security & State Leak Check
+Command:
+```powershell
+git status --short
+```
+Result:
+No `.tfstate` files, secrets, `.env` files, or private keys tracked or staged.
 
 ---
 
-## Task 5 – Harden `.gitignore`
+## 3. Remaining Live-Service Tasks (Require Real Credentials)
 
-**File:** `.gitignore` [MODIFIED]
+The following procedures cannot be executed in a code-only session and must be performed
+by an authorized operator with live credentials:
 
-**What was added:**
-```
-# Airflow local env file – never commit
-airflow/.env
-
-# Terraform variable overrides – account-specific values must not be committed.
-terraform.tfvars
-!terraform.tfvars.example
-
-# dbt dependency lock written by dbt deps – not committed (reproducible from packages.yml)
-dbt/packages.yml
-```
-
-**Why:**
-- `airflow/.env` holds `AIRFLOW_FERNET_KEY`, `POSTGRES_PASSWORD`,
-  `AIRFLOW_ADMIN_PASSWORD`, and `CAREMATCH_S3_BUCKET`. Committing it would
-  expose credentials.
-- `terraform.tfvars` files contain account-specific values and potentially
-  sensitive connector IDs or ARNs. The `.example` files are safe to commit.
-- `dbt/packages.yml` is generated by `dbt deps`; committing it would create
-  diff noise and is redundant with `packages.yml` (the source of truth).
-
----
-
-## Task 6 – Fix Terraform version floor
-
-**File:** `infra/terraform/platform/versions.tf` [MODIFIED]
-
-**Change:**
-```diff
-- required_version = ">= 1.6.0"
-+ required_version = ">= 1.8.0"
-```
-
-**Why:**
-The child module `ec2-airflow/versions.tf` already requires `>= 1.8.0`.
-The composite platform module calling it must enforce at least the same floor,
-otherwise Terraform can initialise with 1.6.x or 1.7.x and fail mid-apply
-when the child module constraint is evaluated.
-
-**Error encountered:**
-After writing the file, `terraform fmt -check` reported `versions.tf` was
-not correctly formatted (the PowerShell heredoc added a Windows-style trailing
-blank line).
-
-**Fix applied:**
-Ran `terraform fmt infra/terraform/platform/versions.tf` to auto-format.
-`terraform fmt -check -recursive infra/terraform` then exits 0.
-
----
-
-## Task 7 – Create `docs/TERRAFORM_MIGRATION.md`
-
-**File:** `docs/TERRAFORM_MIGRATION.md` [NEW]
-
-**What was done:**
-Wrote an 8-step safe migration guide:
-1. Gather live resource IDs from existing state files.
-2. Init platform root without backend.
-3. Create local (untracked) `terraform.tfvars`.
-4. Import S3 module resources (7 `terraform import` commands with exact addresses).
-5. Import EC2 Airflow module resources (VPC, subnet, SG, IGW, route table, VPC endpoint, instance).
-6. Final plan review – accept only in-place updates, reject any destroy/replace.
-7. Apply only after a clean plan.
-8. Archive (not delete) separate state files.
-
-Documented the Fivetran connector (`prohibited_every`) import path as a separate
-step after the primary migration.
-
-**Errors encountered:** None.
-
----
-
-## Task 8 – Update `docs/FULL_AUTOMATION_RUNBOOK.md`
-
-**File:** `docs/FULL_AUTOMATION_RUNBOOK.md` [MODIFIED]
-
-**What was added:**
-- **Environment variables table** covering Snowflake (ACCOUNT, USER, ROLE,
-  PRIVATE_KEY_FILE or PASSWORD) and SaaS (FIVETRAN_APIKEY, FIVETRAN_APISECRET,
-  FIVETRAN_CONNECTOR_ID, HIGHTOUCH_API_KEY, HIGHTOUCH_SYNC_ID).
-- **Script flags table** documenting all 11 parameters with defaults.
-- **SaaS polling behaviour** section explaining the 30-minute polling loop,
-  30-second intervals, and terminal states for both Fivetran and Hightouch.
-- **Clarification** that `verify` mode is read-only (no writes to any system).
-- **Cross-reference** to `TERRAFORM_MIGRATION.md`.
-
----
-
-## Task 9 – Improve `dbt/profiles.yml.example`
-
-**File:** `dbt/profiles.yml.example` [MODIFIED]
-
-**What was added:**
-A second output target `dev_keypair` demonstrating RSA key-pair authentication
-using `private_key_path: "{{ env_var('SNOWFLAKE_PRIVATE_KEY_FILE') }}"`.
-The password target is retained as the development fallback.
-Both targets are annotated with comments explaining when to use each.
-
----
-
-## Task 10 – Verification runs
-
-### Unit tests
-```
-Ran 28 tests in 1.909s
-OK
-```
-
-### PowerShell syntax check
-```
-PowerShell syntax: OK (0 parse errors)
-```
-
-### Terraform validate
-```
-Success! The configuration is valid.
-```
-
-### Terraform fmt
-```
-terraform fmt -check -recursive infra/terraform → exit 0
-```
-
-### Git status (pre-commit)
-```
-M  .gitignore
-A  dbt/models/staging/sources.yml
-M  dbt/profiles.yml.example
-M  docs/FULL_AUTOMATION_RUNBOOK.md
-A  docs/TERRAFORM_MIGRATION.md
-M  infra/terraform/platform/versions.tf
-M  scripts/invoke_case_study_pipeline.ps1
-A  tests/test_pipeline_contract.py
-```
-No secrets, state files, private keys, dbt target output, or generated data staged.
-
----
-
-## Unresolved live-service dependencies
-
-The following items require live cloud credentials and cannot be verified
-in a code-only session:
-
-| Dependency | Why unresolved | How to verify |
-|---|---|---|
-| Airflow DAG execution | Requires AWS SSM access to EC2 `i-02bdd56e8690f35d1` | Run `-Mode initial` with valid AWS profile |
-| Snowflake COPY INTO | Requires Snowflake credentials | Set `SNOWFLAKE_ACCOUNT`, `SNOWFLAKE_USER`, `SNOWFLAKE_PRIVATE_KEY_FILE` and run `-Mode initial` |
-| dbt build | Requires Snowflake credentials via `profiles.yml` | `dbt build --project-dir dbt --profiles-dir dbt` with env vars set |
-| Fivetran sync status | Requires `FIVETRAN_APIKEY`, `FIVETRAN_APISECRET`, `FIVETRAN_CONNECTOR_ID` | Run `-Mode initial -RunFivetran` |
-| Hightouch sync status | Requires `HIGHTOUCH_API_KEY`, `HIGHTOUCH_SYNC_ID` | Run `-Mode initial -RunHightouch` |
-| Terraform platform import | Requires AWS credentials and live resources to match state | Follow `docs/TERRAFORM_MIGRATION.md` |
-
----
-
-## Files changed summary
-
-| File | Change type | Purpose |
-|---|---|---|
-| `.gitignore` | Modified | Added `airflow/.env`, `terraform.tfvars`, `dbt/packages.yml` |
-| `dbt/models/staging/sources.yml` | **New** | Declares all 11 RAW source tables for dbt |
-| `dbt/profiles.yml.example` | Modified | Added key-pair auth target block |
-| `docs/FULL_AUTOMATION_RUNBOOK.md` | Modified | Env vars, flags, SaaS polling, verify-mode note |
-| `docs/TERRAFORM_MIGRATION.md` | **New** | Safe 8-step `terraform import` migration guide |
-| `infra/terraform/platform/versions.tf` | Modified | Raised `required_version` from `>= 1.6.0` to `>= 1.8.0` |
-| `scripts/invoke_case_study_pipeline.ps1` | Modified | Fivetran/Hightouch polling, SSM output capture, PASS/FAIL lines |
-| `tests/test_pipeline_contract.py` | **New** | 14 credential-free contract tests |
-| `WORKLOG.md` | **New** | This file – running log of all work done |
+1. **Airflow EC2 DAG Trigger:** Requires AWS credentials with `ssm:SendCommand` access to EC2 instance `i-02bdd56e8690f35d1`.
+2. **Snowflake Ingestion & Transformation:** Requires live Snowflake account credentials (`CAREMATCH_TRANSFORMER` or `ACCOUNTADMIN`) to run `COPY INTO` and `dbt build`.
+3. **Fivetran SurveyMonkey Sync:** Requires `FIVETRAN_APIKEY` and `FIVETRAN_APISECRET` to trigger connector `prohibited_every`.
+4. **Hightouch Slack Activation:** Requires `HIGHTOUCH_API_KEY` to trigger sync `8379886` and channel invitation in Slack channel `C0BS2TQSS9M`.
+5. **Terraform Platform State Migration:** Can be performed when live AWS access is available following the safe procedure in `docs/TERRAFORM_MIGRATION.md`.

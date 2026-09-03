@@ -6,28 +6,70 @@ sources:
     schema: RAW
     tables:
       - name: nurses
+        description: Operational nurse profiles – one row per nurse per load batch.
         columns:
           - name: nurse_id
+            description: Stable synthetic nurse identifier.
             tests: [not_null]
+          - name: record_updated_at
+            description: Business timestamp used for deduplication ordering.
+
       - name: facilities
+        description: Partner healthcare facility roster.
         columns:
           - name: facility_id
+            description: Stable synthetic facility identifier.
             tests: [not_null]
+          - name: record_updated_at
+            description: Business timestamp used for deduplication ordering.
+
       - name: shifts
+        description: Open, filled, and completed shift postings.
         columns:
           - name: shift_id
+            description: Stable synthetic shift identifier.
             tests: [not_null]
+
       - name: applications
+        description: Nurse applications to open shifts.
         columns:
           - name: application_id
+            description: Stable synthetic application identifier.
             tests: [not_null]
+
       - name: assignments
+        description: Accepted nurse-to-shift assignments.
         columns:
           - name: assignment_id
+            description: Stable synthetic assignment identifier.
             tests: [not_null]
+
       - name: health_screenings
+        description: Nurse health and credential screening records.
+        columns:
+          - name: nurse_id
+            description: Foreign key to nurses.
+
       - name: market_conditions
+        description: External market supply-demand signals by city and specialty.
+
       - name: nurse_scores
+        description: Data-science churn and completion probability scores.
+        columns:
+          - name: nurse_id
+            description: Foreign key to nurses.
+
       - name: campaign_performance
-      - name: manual_overrides
+        description: Appcast campaign impressions, clicks, and spend.
+
       - name: app_events
+        description: Raw Pendo/app-stream events stored as JSONL variants.
+        columns:
+          - name: payload
+            description: Full event object parsed by the staging model.
+
+      - name: manual_overrides
+        description: Spreadsheet-sourced operational contact suppressions.
+        columns:
+          - name: nurse_id
+            description: Foreign key to nurses.

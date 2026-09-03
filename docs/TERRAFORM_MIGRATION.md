@@ -1,191 +1,156 @@
-﻿# Terraform state migration guide
+# Terraform Platform State Migration Procedure
 
-The CareMatch platform was initially deployed using two independent Terraform roots:
-
-- `infra/terraform/s3` – owns the S3 landing bucket and its security policies.
-- `infra/terraform/ec2-airflow` – owns the VPC, EC2 instance, IAM roles, and SSM.
-
-The composite `infra/terraform/platform` root composes these as child modules so
-new accounts need only one `terraform apply`. This guide explains how to migrate
-the **existing** live resources from the separate states into the composite state
-without destroying or recreating any infrastructure.
-
-> **Important** – Read this document completely before executing any command.
-> Do not run `terraform apply` until you have verified that `terraform plan`
-> shows only import operations and no replacements.
+> **Status Notice:** This procedure document is designed for consolidating separate
+> module states into the composite platform root. **This migration has NOT been
+> executed live against AWS resources.** Do not execute `terraform apply` without
+> verifying a clean plan showing zero resources destroyed.
 
 ---
 
-## Prerequisites
+## Overview
 
-- Terraform >= 1.8.0 installed locally.
-- AWS CLI profile `carematch-dev` or equivalent with read-only access to the
-  account.
-- Existing separate state files present:
-  - `infra/terraform/s3/terraform.tfstate`
-  - `infra/terraform/ec2-airflow/terraform.tfstate`
-- No `terraform.tfvars` committed (use environment variables or a local,
-  untracked `terraform.tfvars` file).
+The CareMatch data platform was initially provisioned across separate Terraform roots:
+- `infra/terraform/s3`: S3 landing bucket and security policies
+- `infra/terraform/ec2-airflow`: VPC, subnets, EC2 instance, IAM roles, and VPC endpoints
+
+The composite module at `infra/terraform/platform` references these as child modules:
+`module.s3` and `module.airflow`.
+
+This runbook specifies the safe, non-destructive migration procedure to import the
+existing live resources into the unified platform state using `default` AWS profile.
 
 ---
 
-## Step 1 – Gather the live resource IDs
+## Safety Rules and Pre-flight Checks
 
-Read these values from the existing state files. Do not query the AWS API
-directly; use `terraform output` from the child roots.
+1. **Explicit No-Destroy Safeguard:** Every plan must be evaluated with `terraform show`
+   or visual inspection to ensure `0 to destroy` and `0 to replace`.
+2. **State Backups First:** Never modify or run state commands without creating timestamped
+   copies of all `.tfstate` files.
+3. **No Whole-State Deletions on Rollback:** If an import fails or exhibits diffs, roll
+   back using state backup restoration or targeted `terraform state rm`, never delete
+   active state files.
+4. **Read-Only Inspection:** Never run `terraform destroy` during migration.
+
+---
+
+## Step 1 - Backup Existing State Files
+
+Before touching any state:
 
 ```powershell
-# S3 bucket name
-terraform -chdir=infra/terraform/s3 output -raw bucket_name
-# Expected: carematch-data-237657481511-dev
-
-# EC2 instance ID
-terraform -chdir=infra/terraform/ec2-airflow output -raw instance_id
-# Expected: i-02bdd56e8690f35d1
+$timestamp = (Get-Date).ToUniversalTime().ToString("yyyyMMddTHHmmssZ")
+Copy-Item "infra/terraform/s3/terraform.tfstate" "infra/terraform/s3/terraform.tfstate.backup.$timestamp"
+Copy-Item "infra/terraform/ec2-airflow/terraform.tfstate" "infra/terraform/ec2-airflow/terraform.tfstate.backup.$timestamp"
 ```
 
-Collect any other resource IDs referenced in the state that the platform module
-must own (VPC, subnets, IAM roles, etc.).
+Verify that backups exist and are non-empty before proceeding.
 
 ---
 
-## Step 2 – Initialise the platform root without a backend
+## Step 2 - Initialize Platform Root
 
-The composite root has not yet been applied in the target account. Initialise
-it without applying:
+Set environment variables and initialize platform working directory without connecting to backend:
 
 ```powershell
+$env:AWS_PROFILE = "default"
+$env:AWS_REGION = "us-east-1"
+$env:TF_DATA_DIR = ".terraform-data-platform"
+
 terraform -chdir=infra/terraform/platform init -backend=false
 terraform -chdir=infra/terraform/platform validate
 ```
 
-Resolve any validation errors before proceeding.
-
 ---
 
-## Step 3 – Create a `terraform.tfvars` for the platform root (local, untracked)
+## Step 3 - Create Untracked Variables Configuration
 
-Copy the example and fill in account-specific values. This file must NOT be
-committed.
+Create a local, untracked `terraform.tfvars` file for the platform root:
 
 ```powershell
-Copy-Item infra/terraform/platform/terraform.tfvars.example `
-         infra/terraform/platform/terraform.tfvars
+Copy-Item "infra/terraform/platform/terraform.tfvars.example" "infra/terraform/platform/terraform.tfvars"
 ```
 
-Edit `infra/terraform/platform/terraform.tfvars`:
+Configure the variables to match the live infrastructure:
 
 ```hcl
-aws_profile = "carematch-dev"
+aws_profile = "default"
 aws_region  = "us-east-1"
 environment = "dev"
 
-# Leave Snowflake trust and Fivetran schedule disabled during import.
-enable_snowflake_s3_trust  = false
-enable_fivetran_schedule   = false
+enable_snowflake_s3_trust = false
+enable_fivetran_schedule  = false
 ```
 
 ---
 
-## Step 4 – Import S3 module resources
+## Step 4 - Import S3 Resources (module.s3)
 
-The platform's S3 child module address prefix is `module.s3`.
+All resource addresses and IDs match the live state in `infra/terraform/s3/terraform.tfstate`:
 
 ```powershell
 $bucket = "carematch-data-237657481511-dev"
 
-terraform -chdir=infra/terraform/platform import `
-  module.s3.aws_s3_bucket.landing               $bucket
-terraform -chdir=infra/terraform/platform import `
-  module.s3.aws_s3_bucket_ownership_controls.landing   $bucket
-terraform -chdir=infra/terraform/platform import `
-  module.s3.aws_s3_bucket_public_access_block.landing  $bucket
-terraform -chdir=infra/terraform/platform import `
-  module.s3.aws_s3_bucket_versioning.landing           $bucket
-terraform -chdir=infra/terraform/platform import `
-  module.s3.aws_s3_bucket_server_side_encryption_configuration.landing  $bucket
-terraform -chdir=infra/terraform/platform import `
-  module.s3.aws_s3_bucket_lifecycle_configuration.landing               $bucket
-terraform -chdir=infra/terraform/platform import `
-  module.s3.aws_s3_bucket_policy.landing                                $bucket
+terraform -chdir=infra/terraform/platform import module.s3.aws_s3_bucket.landing $bucket
+terraform -chdir=infra/terraform/platform import module.s3.aws_s3_bucket_ownership_controls.landing $bucket
+terraform -chdir=infra/terraform/platform import module.s3.aws_s3_bucket_public_access_block.landing $bucket
+terraform -chdir=infra/terraform/platform import module.s3.aws_s3_bucket_versioning.landing $bucket
+terraform -chdir=infra/terraform/platform import module.s3.aws_s3_bucket_server_side_encryption_configuration.landing $bucket
+terraform -chdir=infra/terraform/platform import module.s3.aws_s3_bucket_lifecycle_configuration.landing $bucket
+terraform -chdir=infra/terraform/platform import module.s3.aws_s3_bucket_policy.landing $bucket
 ```
-
-After all imports, verify:
-
-```powershell
-terraform -chdir=infra/terraform/platform plan
-```
-
-The plan must show **0 to add, 0 to change, 0 to destroy** for the S3 resources.
-If any in-place updates appear, review the attribute diff and adjust the
-`terraform.tfvars` to match the live configuration before continuing.
 
 ---
 
-## Step 5 – Import EC2 Airflow module resources
+## Step 5 - Import EC2 & Airflow Resources (module.airflow)
 
-The platform's Airflow child module address prefix is `module.airflow`.
-Read the resource IDs from `infra/terraform/ec2-airflow/terraform.tfstate`
-or from `terraform -chdir=infra/terraform/ec2-airflow output`.
+All resource addresses and IDs match the live state in `infra/terraform/ec2-airflow/terraform.tfstate`:
 
 ```powershell
-$instanceId = "i-02bdd56e8690f35d1"
-$vpcId      = "vpc-06f2b35276e5960a6"
-$subnetId   = "subnet-08db96d60aa233607"
-$sgId       = "sg-065e44fa631d5df4c"
-$igwId      = "<internet-gateway-id>"        # read from ec2-airflow state
-$rtbId      = "<route-table-id>"             # read from ec2-airflow state
-$endpointId = "vpce-06e7663082dc90b92"
+# Networking
+terraform -chdir=infra/terraform/platform import module.airflow.aws_vpc.airflow vpc-06f2b35276e5960a6
+terraform -chdir=infra/terraform/platform import module.airflow.aws_subnet.public subnet-08db96d60aa233607
+terraform -chdir=infra/terraform/platform import module.airflow.aws_internet_gateway.airflow igw-08fa38fbe5205d8b7
+terraform -chdir=infra/terraform/platform import module.airflow.aws_route_table.public rtb-0af517f038b29e630
+terraform -chdir=infra/terraform/platform import module.airflow.aws_route_table_association.public subnet-08db96d60aa233607/rtb-0af517f038b29e630
+terraform -chdir=infra/terraform/platform import module.airflow.aws_security_group.airflow sg-065e44fa631d5df4c
+terraform -chdir=infra/terraform/platform import module.airflow.aws_vpc_endpoint.s3 vpce-06e7663082dc90b92
 
-terraform -chdir=infra/terraform/platform import `
-  module.airflow.aws_instance.airflow          $instanceId
-terraform -chdir=infra/terraform/platform import `
-  module.airflow.aws_vpc.airflow               $vpcId
-terraform -chdir=infra/terraform/platform import `
-  module.airflow.aws_subnet.public             $subnetId
-terraform -chdir=infra/terraform/platform import `
-  module.airflow.aws_security_group.airflow    $sgId
-terraform -chdir=infra/terraform/platform import `
-  module.airflow.aws_internet_gateway.airflow  $igwId
-terraform -chdir=infra/terraform/platform import `
-  module.airflow.aws_route_table.public        $rtbId
-terraform -chdir=infra/terraform/platform import `
-  module.airflow.aws_vpc_endpoint.s3           $endpointId
-# Import IAM resources (role, instance profile, policy attachments) similarly.
+# IAM Roles and Policies
+terraform -chdir=infra/terraform/platform import module.airflow.aws_iam_role.airflow carematch-dev-airflow
+terraform -chdir=infra/terraform/platform import module.airflow.aws_iam_instance_profile.airflow carematch-dev-airflow
+terraform -chdir=infra/terraform/platform import module.airflow.aws_iam_role_policy.airflow_data carematch-dev-airflow:carematch-s3-and-bootstrap
+terraform -chdir=infra/terraform/platform import module.airflow.aws_iam_role_policy_attachment.ssm_core carematch-dev-airflow/arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+
+# Compute Instance
+terraform -chdir=infra/terraform/platform import module.airflow.aws_instance.airflow i-02bdd56e8690f35d1
 ```
-
-Run `terraform plan` after each batch of imports and confirm no destructive
-changes appear.
 
 ---
 
-## Step 6 – Final plan review
+## Step 6 - Verification Plan with No-Destroy Enforcement
 
-After all resources are imported:
+Generate an execution plan and inspect it:
 
 ```powershell
-terraform -chdir=infra/terraform/platform plan -out=platform.tfplan
+terraform -chdir=infra/terraform/platform plan -out=migration.tfplan
 ```
 
-Review the output carefully. Accept only:
-
-- `~ update in-place` for tag or minor metadata changes.
-- No `- destroy` or `-/+ replace` operations.
-
-If replacements appear, do not apply. Investigate the diff, add missing import
-addresses, or adjust the module inputs to match the live configuration.
+Evaluate the plan output:
+- **Expected:** `Plan: 0 to add, 0 to change, 0 to destroy` (or only non-destructive in-place tag updates).
+- **Strict Rule:** If the plan shows any resource `to destroy` or `to replace`, **DO NOT APPLY**. Abort and diagnose attribute mismatches.
 
 ---
 
-## Step 7 – Apply (guarded)
+## Step 7 - Controlled Apply
 
-Only after a clean plan with no replacements:
+Only when Step 6 confirms zero destructive actions:
 
 ```powershell
-terraform -chdir=infra/terraform/platform apply platform.tfplan
+terraform -chdir=infra/terraform/platform apply migration.tfplan
 ```
 
-Verify outputs match the pre-migration values:
+Verify outputs:
 
 ```powershell
 terraform -chdir=infra/terraform/platform output s3_bucket_name
@@ -194,39 +159,21 @@ terraform -chdir=infra/terraform/platform output airflow_instance_id
 
 ---
 
-## Step 8 – Archive the separate state files
+## Safe Rollback Procedure
 
-Once the platform state is the authoritative source:
+If the migration process encounters unexpected diffs or errors during import:
 
-1. Move (do not delete) `infra/terraform/s3/terraform.tfstate` and
-   `infra/terraform/ec2-airflow/terraform.tfstate` to a backup location outside
-   the repository.
-2. Add a `README.md` note to the child roots explaining they are now managed
-   by the composite platform root.
-3. Do not commit the state files or their backups.
-
----
-
-## Rollback
-
-If the migration is abandoned after imports but before apply:
-
-1. Delete the partially-built platform state file.
-2. The child root state files remain untouched and are still authoritative.
-
----
-
-## Notes
-
-- The `snowflake-s3-integration` and `fivetran-schedule` modules have their own
-  separate states. Import them into the platform root only after the S3 and
-  EC2 modules are successfully migrated and verified.
-- The Fivetran connector (`prohibited_every`) is not yet in any Terraform state.
-  Import it into the platform root's `fivetran_schedule` module using:
-  ```
-  terraform -chdir=infra/terraform/platform import \
-    module.fivetran_schedule[0].fivetran_connector_schedule.selected \
-    prohibited_every
-  ```
-  Set `enable_fivetran_schedule = true` and provide `fivetran_connector_id`
-  in `terraform.tfvars` before importing.
+1. **Do NOT delete state files:** Deleting state files causes Terraform to lose awareness
+   of managed infrastructure, potentially leading to abandoned resources or duplicate creations.
+2. **Targeted State Removal:** If a single resource was imported incorrectly, remove only
+   that address from the platform state:
+   ```powershell
+   terraform -chdir=infra/terraform/platform state rm <resource_address>
+   ```
+3. **Backup Restoration:** To return to the pre-migration baseline, restore the backed-up
+   state files created in Step 1:
+   ```powershell
+   Copy-Item "infra/terraform/s3/terraform.tfstate.backup.$timestamp" "infra/terraform/s3/terraform.tfstate"
+   Copy-Item "infra/terraform/ec2-airflow/terraform.tfstate.backup.$timestamp" "infra/terraform/ec2-airflow/terraform.tfstate"
+   ```
+   Remove any temporary platform state file generated during the failed trial.

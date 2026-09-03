@@ -1,4 +1,4 @@
-﻿[CmdletBinding(SupportsShouldProcess)]
+[CmdletBinding(SupportsShouldProcess)]
 param(
     [Parameter(Mandatory)]
     [ValidateSet("infrastructure", "initial", "incremental", "verify")]
@@ -13,10 +13,13 @@ param(
     [int]$IncrementalNurseCount = 550,
     [string]$AirflowInstanceId,
     [string]$S3BucketName,
+    [string]$SnowflakeRoleArn,
     [switch]$ApplyInfrastructure,
     [switch]$RunFivetran,
     [switch]$RunHightouch,
-    [switch]$SkipDbt
+    [switch]$SkipDbt,
+    [int]$SaasTimeoutSeconds = 1800,
+    [int]$SaasPollIntervalSeconds = 30
 )
 
 $ErrorActionPreference = "Stop"
@@ -68,8 +71,8 @@ docker compose --env-file airflow/.env -f airflow/docker-compose.ec2.yaml exec -
 for attempt in `$(seq 1 120); do
   state=`$(docker compose --env-file airflow/.env -f airflow/docker-compose.ec2.yaml exec -T airflow-webserver airflow dags state carematch_synthetic_sources_to_s3 '$runId' | tail -n 1 | tr -d '\r')
   echo "  attempt ${attempt}: DAG state=${state}"
-  if [ "`$state" = "success" ]; then exit 0; fi
-  if [ "`$state" = "failed" ]; then exit 1; fi
+  if [ "${state}" = "success" ]; then exit 0; fi
+  if [ "${state}" = "failed" ]; then exit 1; fi
   sleep 15
 done
 echo 'Timed out waiting for the Airflow DAG run' >&2
@@ -77,35 +80,78 @@ exit 1
 "@
     $parameters = @{ commands = @($remoteCommand) } | ConvertTo-Json -Compress
     Write-Host "[Airflow] Sending SSM command to instance $instanceId..."
-    $commandId = aws ssm send-command --profile $AwsProfile --region $AwsRegion --instance-ids $instanceId --document-name AWS-RunShellScript --parameters $parameters --query Command.CommandId --output text
-    if ($LASTEXITCODE -ne 0 -or -not $commandId) { throw "Airflow SSM trigger failed." }
-    Write-Host "[Airflow] SSM command ID: $commandId – polling for completion..."
-    aws ssm wait command-executed --profile $AwsProfile --region $AwsRegion --command-id $commandId --instance-id $instanceId
-    $ssmExitCode = $LASTEXITCODE
-    $invocation = aws ssm get-command-invocation --profile $AwsProfile --region $AwsRegion --command-id $commandId --instance-id $instanceId --query "{Status:Status,Output:StandardOutputContent,Error:StandardErrorContent}" | ConvertFrom-Json
-    Write-Host "[Airflow] SSM status : $($invocation.Status)"
-    if ($invocation.Output) { Write-Host "[Airflow] stdout:`n$($invocation.Output)" }
-    if ($invocation.Error)  { Write-Host "[Airflow] stderr:`n$($invocation.Error)" }
-    if ($ssmExitCode -ne 0 -or $invocation.Status -ne "Success") {
-        throw "Airflow trigger command did not complete successfully (status=$($invocation.Status))."
+    $commandId = aws ssm send-command `
+        --profile $AwsProfile --region $AwsRegion `
+        --instance-ids $instanceId `
+        --document-name AWS-RunShellScript `
+        --parameters $parameters `
+        --query Command.CommandId --output text 2>&1
+    if ($LASTEXITCODE -ne 0 -or -not $commandId) {
+        throw "Airflow SSM send-command failed: $commandId"
     }
-    Write-Host "[Airflow] PASS – DAG run $runId succeeded."
+    $commandId = $commandId.Trim()
+    Write-Host "[Airflow] SSM command ID: $commandId - polling for completion..."
+
+    aws ssm wait command-executed `
+        --profile $AwsProfile --region $AwsRegion `
+        --command-id $commandId --instance-id $instanceId 2>&1 | Out-Null
+    $ssmExitCode = $LASTEXITCODE
+
+    $invocationRaw = aws ssm get-command-invocation `
+        --profile $AwsProfile --region $AwsRegion `
+        --command-id $commandId --instance-id $instanceId `
+        --query "{Status:Status,Output:StandardOutputContent,Error:StandardErrorContent}" `
+        --output json 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to retrieve SSM invocation details for command ${commandId}: $invocationRaw"
+    }
+    try {
+        $invocation = $invocationRaw | ConvertFrom-Json
+    } catch {
+        throw "SSM invocation output was not valid JSON: $invocationRaw"
+    }
+
+    Write-Host "[Airflow] SSM status: $($invocation.Status)"
+    if ($invocation.Output) { Write-Host "[Airflow] stdout:`n$($invocation.Output)" }
+    if ($invocation.Error -and $invocation.Error.Trim()) { Write-Host "[Airflow] stderr:`n$($invocation.Error)" }
+
+    if ($ssmExitCode -ne 0 -or $invocation.Status -ne "Success") {
+        throw "Airflow DAG run failed (SSM status=$($invocation.Status), exitCode=$ssmExitCode)."
+    }
+    Write-Host "[Airflow] PASS - DAG run $runId succeeded."
 }
 
 function Invoke-SnowflakeAndDbt {
     param([string]$BucketName, [bool]$Bootstrap)
-    $roleArn = Get-PlatformOutput "snowflake_s3_role_arn_candidate"
+    $roleArn = if ($SnowflakeRoleArn) {
+        $SnowflakeRoleArn
+    } elseif ($Bootstrap) {
+        Get-PlatformOutput "snowflake_s3_role_arn_candidate"
+    } else {
+        try { Get-PlatformOutput "snowflake_s3_role_arn_candidate" } catch { "" }
+    }
+
     if ($Bootstrap) {
         $bootstrapFile = Join-Path $projectRoot "snowflake\sql\01_platform_bootstrap.sql"
-        Invoke-Checked { python (Join-Path $projectRoot "scripts\run_snowflake_sql.py") --bucket $BucketName --snowflake-role-arn $roleArn $bootstrapFile } "Snowflake bootstrap failed"
+        Invoke-Checked {
+            python (Join-Path $projectRoot "scripts\run_snowflake_sql.py") `
+                --bucket $BucketName --snowflake-role-arn $roleArn $bootstrapFile
+        } "Snowflake bootstrap failed"
 
-        $integration = python (Join-Path $projectRoot "scripts\read_snowflake_integration.py") | ConvertFrom-Json
-        if ($LASTEXITCODE -ne 0 -or -not $integration.iam_user_arn -or -not $integration.external_id) {
-            throw "Could not read the Snowflake storage integration trust values."
+        $integrationRaw = python (Join-Path $projectRoot "scripts\read_snowflake_integration.py") 2>&1
+        if ($LASTEXITCODE -ne 0) { throw "read_snowflake_integration.py failed: $integrationRaw" }
+        try {
+            $integration = $integrationRaw | ConvertFrom-Json
+        } catch {
+            throw "read_snowflake_integration.py output was not valid JSON: $integrationRaw"
+        }
+        if (-not $integration.iam_user_arn -or -not $integration.external_id) {
+            throw "Could not read Snowflake storage integration trust values."
         }
         Invoke-Checked {
             terraform "-chdir=$platformDir" apply -auto-approve -input=false `
-                "-var=aws_profile=$AwsProfile" "-var=aws_region=$AwsRegion" "-var=environment=$Environment" `
+                "-var=aws_profile=$AwsProfile" "-var=aws_region=$AwsRegion" `
+                "-var=environment=$Environment" `
                 "-var=enable_snowflake_s3_trust=true" `
                 "-var=snowflake_iam_user_arn=$($integration.iam_user_arn)" `
                 "-var=snowflake_external_id=$($integration.external_id)"
@@ -113,115 +159,68 @@ function Invoke-SnowflakeAndDbt {
     }
 
     $loadFile = Join-Path $projectRoot "snowflake\sql\02_s3_stage_and_raw_load.sql"
-    Invoke-Checked { python (Join-Path $projectRoot "scripts\run_snowflake_sql.py") --bucket $BucketName --snowflake-role-arn $roleArn $loadFile } "Snowflake load failed"
-    Write-Host "[Snowflake] PASS – raw load complete."
+    Invoke-Checked {
+        python (Join-Path $projectRoot "scripts\run_snowflake_sql.py") `
+            --bucket $BucketName --snowflake-role-arn $roleArn $loadFile
+    } "Snowflake load failed"
+    Write-Host "[Snowflake] PASS - raw load complete."
 
     if (-not $SkipDbt) {
         if (-not (Get-Command dbt -ErrorAction SilentlyContinue)) { throw "dbt is not installed or not on PATH." }
-        Invoke-Checked { dbt deps --project-dir (Join-Path $projectRoot "dbt") --profiles-dir (Join-Path $projectRoot "dbt") } "dbt deps failed"
-        Invoke-Checked { dbt build --project-dir (Join-Path $projectRoot "dbt") --profiles-dir (Join-Path $projectRoot "dbt") } "dbt build failed"
-        Write-Host "[dbt] PASS – models built and tests passed."
+        $packagesFile = Join-Path $projectRoot "dbt\packages.yml"
+        if (Test-Path $packagesFile) {
+            Invoke-Checked {
+                dbt deps --project-dir (Join-Path $projectRoot "dbt") --profiles-dir (Join-Path $projectRoot "dbt")
+            } "dbt deps failed"
+        } else {
+            Write-Host "[dbt] No packages.yml declared - skipping dbt deps."
+        }
+        Invoke-Checked {
+            dbt build --project-dir (Join-Path $projectRoot "dbt") --profiles-dir (Join-Path $projectRoot "dbt")
+        } "dbt build failed"
+        Write-Host "[dbt] PASS - models built and tests passed."
     }
 }
 
 function Invoke-FivetranSync {
-    # Validate required environment variables before calling the API.
+    param(
+        [int]$TimeoutSeconds = $SaasTimeoutSeconds,
+        [int]$PollInterval = $SaasPollIntervalSeconds
+    )
     $missing = @()
     if (-not $env:FIVETRAN_APIKEY)        { $missing += "FIVETRAN_APIKEY" }
     if (-not $env:FIVETRAN_APISECRET)     { $missing += "FIVETRAN_APISECRET" }
     if (-not $env:FIVETRAN_CONNECTOR_ID)  { $missing += "FIVETRAN_CONNECTOR_ID" }
-    if ($missing) { throw "Missing Fivetran environment variables: $($missing -join ', '). Set them and retry." }
-
-    $pair  = "$($env:FIVETRAN_APIKEY):$($env:FIVETRAN_APISECRET)"
-    $token = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes($pair))
-    $headers = @{ Authorization = "Basic $token" }
-    $baseUri  = "https://api.fivetran.com/v1/connectors/$($env:FIVETRAN_CONNECTOR_ID)"
-
-    Write-Host "[Fivetran] Triggering force sync for connector $($env:FIVETRAN_CONNECTOR_ID)..."
-    try {
-        Invoke-RestMethod -Method Post -Uri "$baseUri/force" -Headers $headers | Out-Null
-    } catch {
-        throw "[Fivetran] Force-sync API call failed: $_"
+    if ($missing.Count -gt 0) {
+        throw "Missing Fivetran environment variables: $($missing -join ', '). Set them and retry."
     }
 
-    # Poll until sync_state leaves the running/scheduled set or the timeout expires.
-    $timeoutSeconds = 1800   # 30 minutes
-    $sleepSeconds   = 30
-    $started        = [datetime]::UtcNow
-    $terminalStates = @("connected", "broken", "incomplete", "paused")
-    $successStates  = @("connected")
-
-    Write-Host "[Fivetran] Polling sync status (timeout ${timeoutSeconds}s, interval ${sleepSeconds}s)..."
-    while (([datetime]::UtcNow - $started).TotalSeconds -lt $timeoutSeconds) {
-        Start-Sleep -Seconds $sleepSeconds
-        try {
-            $response  = Invoke-RestMethod -Method Get -Uri $baseUri -Headers $headers
-            $syncState = $response.data.status.sync_state
-        } catch {
-            Write-Warning "[Fivetran] Status poll failed (will retry): $_"
-            continue
-        }
-        $elapsed = [int]([datetime]::UtcNow - $started).TotalSeconds
-        Write-Host "[Fivetran]   +${elapsed}s  sync_state=$syncState"
-        if ($syncState -in $terminalStates) {
-            if ($syncState -in $successStates) {
-                Write-Host "[Fivetran] PASS – sync completed (state=$syncState, elapsed=${elapsed}s)."
-                return
-            }
-            throw "[Fivetran] FAIL – sync ended in non-success state '$syncState' after ${elapsed}s."
-        }
-    }
-    throw "[Fivetran] FAIL – sync did not complete within ${timeoutSeconds}s."
+    Write-Host "[Fivetran] Triggering and polling connector $($env:FIVETRAN_CONNECTOR_ID)..."
+    Invoke-Checked {
+        python (Join-Path $projectRoot "scripts\saas_sync.py") fivetran `
+            --timeout $TimeoutSeconds --interval $PollInterval
+    } "Fivetran sync failed"
+    Write-Host "[Fivetran] PASS - connector sync completed successfully."
 }
 
 function Invoke-HightouchSync {
-    # Validate required environment variables before calling the API.
+    param(
+        [int]$TimeoutSeconds = $SaasTimeoutSeconds,
+        [int]$PollInterval = $SaasPollIntervalSeconds
+    )
     $missing = @()
     if (-not $env:HIGHTOUCH_API_KEY) { $missing += "HIGHTOUCH_API_KEY" }
     if (-not $env:HIGHTOUCH_SYNC_ID) { $missing += "HIGHTOUCH_SYNC_ID" }
-    if ($missing) { throw "Missing Hightouch environment variables: $($missing -join ', '). Set them and retry." }
-
-    $headers = @{ Authorization = "Bearer $($env:HIGHTOUCH_API_KEY)" }
-    $syncUri = "https://api.hightouch.com/api/v1/syncs/$($env:HIGHTOUCH_SYNC_ID)"
-
-    Write-Host "[Hightouch] Triggering sync $($env:HIGHTOUCH_SYNC_ID)..."
-    try {
-        $triggered = Invoke-RestMethod -Method Post -Uri "$syncUri/trigger" -Headers $headers
-    } catch {
-        throw "[Hightouch] Trigger API call failed: $_"
+    if ($missing.Count -gt 0) {
+        throw "Missing Hightouch environment variables: $($missing -join ', '). Set them and retry."
     }
-    $syncRequestId = $triggered.id
-    Write-Host "[Hightouch] Sync request ID: $syncRequestId"
 
-    # Poll the sync request list for the launched request.
-    $timeoutSeconds = 1800   # 30 minutes
-    $sleepSeconds   = 30
-    $started        = [datetime]::UtcNow
-    $terminalStates = @("success", "failed", "interrupted", "cancelled")
-
-    Write-Host "[Hightouch] Polling sync status (timeout ${timeoutSeconds}s, interval ${sleepSeconds}s)..."
-    while (([datetime]::UtcNow - $started).TotalSeconds -lt $timeoutSeconds) {
-        Start-Sleep -Seconds $sleepSeconds
-        try {
-            $requests = Invoke-RestMethod -Method Get -Uri "$syncUri/sync_requests" -Headers $headers
-            $latest   = $requests.data | Where-Object { $_.id -eq $syncRequestId } | Select-Object -First 1
-            if (-not $latest) { $latest = $requests.data | Select-Object -First 1 }
-            $status = $latest.status
-        } catch {
-            Write-Warning "[Hightouch] Status poll failed (will retry): $_"
-            continue
-        }
-        $elapsed = [int]([datetime]::UtcNow - $started).TotalSeconds
-        Write-Host "[Hightouch]   +${elapsed}s  status=$status"
-        if ($status -in $terminalStates) {
-            if ($status -eq "success") {
-                Write-Host "[Hightouch] PASS – sync completed (status=$status, elapsed=${elapsed}s)."
-                return
-            }
-            throw "[Hightouch] FAIL – sync ended in non-success status '$status' after ${elapsed}s."
-        }
-    }
-    throw "[Hightouch] FAIL – sync did not complete within ${timeoutSeconds}s."
+    Write-Host "[Hightouch] Triggering and polling sync $($env:HIGHTOUCH_SYNC_ID)..."
+    Invoke-Checked {
+        python (Join-Path $projectRoot "scripts\saas_sync.py") hightouch `
+            --timeout $TimeoutSeconds --interval $PollInterval
+    } "Hightouch sync failed"
+    Write-Host "[Hightouch] PASS - sync completed successfully."
 }
 
 Push-Location $projectRoot
@@ -233,7 +232,7 @@ try {
 
     Write-Host "[Validate] Running local unit tests..."
     Invoke-Checked { python -m unittest discover -s tests -v } "Local validation failed"
-    Write-Host "[Validate] PASS – all unit tests passed."
+    Write-Host "[Validate] PASS - all unit tests passed."
 
     $bucket = if ($S3BucketName) { $S3BucketName } else { Get-PlatformOutput "s3_bucket_name" }
 
@@ -246,17 +245,20 @@ try {
             Invoke-SnowflakeAndDbt -BucketName $bucket -Bootstrap $isInitial
             if ($RunFivetran)  { Invoke-FivetranSync }
             if ($RunHightouch) { Invoke-HightouchSync }
-            Write-Host "[Pipeline] PASS – $Mode pipeline complete."
+            Write-Host "[Pipeline] PASS - $Mode pipeline complete."
         }
     }
 
     if ($Mode -eq "verify") {
         Write-Host "[Verify] Running read-only verification queries..."
-        Invoke-Checked { python (Join-Path $projectRoot "scripts\run_snowflake_sql.py") --bucket $bucket (Join-Path $projectRoot "snowflake\sql\06_incremental_demo.sql") } "Verification query failed"
-        Write-Host "[Verify] PASS – verification queries returned results."
+        Invoke-Checked {
+            python (Join-Path $projectRoot "scripts\run_snowflake_sql.py") `
+                --bucket $bucket `
+                (Join-Path $projectRoot "snowflake\sql\06_incremental_demo.sql")
+        } "Verification query failed"
+        Write-Host "[Verify] PASS - verification queries returned results."
     }
 }
 finally {
     Pop-Location
 }
-

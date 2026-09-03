@@ -5,6 +5,7 @@ import csv
 import hashlib
 import json
 import random
+import re
 import shutil
 from collections import Counter, defaultdict
 from datetime import date, datetime, timedelta, timezone
@@ -375,6 +376,17 @@ def generate(root: Path, seed: int, load_date: date, nurse_count: int, facility_
     manifest = build_manifest(root, seed, load_date, row_counts)
     (root / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     return manifest
+
+
+def sanitize_batch_id(raw_run_id: str) -> str:
+    """Sanitize Airflow run_id into a safe, unique S3 partition batch identifier."""
+    return re.sub(r"[^A-Za-z0-9_-]+", "_", raw_run_id).strip("_")
+
+
+def build_s3_raw_key(relative_object_key: str, batch_id: str) -> str:
+    """Construct S3 raw partition key: raw/{source_path}/batch_id={batch_id}/{filename}."""
+    path, filename = relative_object_key.rsplit("/", 1)
+    return f"raw/{path}/batch_id={batch_id}/{filename}"
 
 
 def parse_args() -> argparse.Namespace:

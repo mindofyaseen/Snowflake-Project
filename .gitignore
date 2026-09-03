@@ -1,4 +1,4 @@
-﻿__pycache__/
+__pycache__/
 *.py[cod]
 .pytest_cache/
 .venv/
@@ -6,7 +6,7 @@
 .env.*
 !.env.example
 
-# Airflow local env file – never commit
+# Airflow local env file contains Fernet key, Postgres password, and S3 bucket.
 airflow/.env
 
 data/generated/
@@ -20,8 +20,8 @@ data/downloads/
 *.tfplan
 crash.log
 
-# Terraform variable overrides – account-specific values must not be committed.
-# The committed .example file shows all available variables.
+# Terraform variable overrides contain account-specific values.
+# The committed .example file documents all available variables.
 terraform.tfvars
 !terraform.tfvars.example
 
@@ -36,7 +36,5 @@ dbt/profiles.yml
 dbt/target/
 dbt/logs/
 dbt/dbt_packages/
-# dbt dependency lock written by dbt deps – not committed (reproducible from packages.yml)
-dbt/packages.yml
 
 tmp/
