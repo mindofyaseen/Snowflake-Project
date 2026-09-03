@@ -69,7 +69,7 @@ git checkout main
 git pull --ff-only
 docker compose --env-file airflow/.env -f airflow/docker-compose.ec2.yaml exec -T airflow-webserver airflow dags trigger carematch_synthetic_sources_to_s3 --run-id '$runId' --conf '$conf'
 for attempt in `$(seq 1 120); do
-  state=`$(docker compose --env-file airflow/.env -f airflow/docker-compose.ec2.yaml exec -T airflow-webserver airflow dags state carematch_synthetic_sources_to_s3 '$runId' | tail -n 1 | tr -d '\r')
+  state=`$(docker compose --env-file airflow/.env -f airflow/docker-compose.ec2.yaml exec -T airflow-webserver bash -c "airflow dags list-runs -d carematch_synthetic_sources_to_s3 -o json | python3 -c \"import json, sys; runs = json.load(sys.stdin); print(next((r['state'] for r in runs if r['run_id'] == '$runId'), 'unknown'))\"" | tr -d '\r')
   echo "  attempt ${attempt}: DAG state=${state}"
   if [ "${state}" = "success" ]; then exit 0; fi
   if [ "${state}" = "failed" ]; then exit 1; fi

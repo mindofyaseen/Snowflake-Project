@@ -91,6 +91,26 @@ correction pass, validation checks, and remaining tasks for the CareMatch Intely
 
 ## 2. Verification Results
 
+### Live Incremental DAG Execution (Executed in This Pass)
+
+- **Airflow DAG Run ID:** `manual__inc_550_20260903T085640Z`
+- **Trigger Configuration:** `{"nurse_count": 550, "load_date": "2026-09-03", "load_mode": "incremental"}`
+- **Airflow Execution Result:** State `success` (completed in 14 seconds).
+- **Remote S3 Batch Partition:** `s3://carematch-data-237657481511-dev/manifests/load_date=2026-09-03/batch_id=manual__inc_550_20260903T085640Z/manifest.json`
+- **Remote Manifest Verification:**
+  - `requested_nurse_count`: **550**
+  - `source=operational/entity=nurses/.../nurses.csv`: **550 rows** (SHA-256: `8cfe4e411abe8de1cb038530de657d2642a5e5dcc41dbb7a85111dcef984768c`)
+  - `source=data_science/entity=nurse_scores/.../nurse_scores.csv`: **550 rows**
+  - `source=operational/entity=health_screenings/.../health_screenings.csv`: **550 rows**
+  - `source=operational/entity=applications/.../applications.csv`: **10,539 rows**
+  - `source=operational/entity=assignments/.../assignments.csv`: **2,029 rows**
+  - `source=app_stream/entity=events/.../events.jsonl`: **3,408 rows**
+  - Total Raw Files: 11 entity files across 6 source families + 1 manifest.
+- **DAG State Polling Hardening:** Updated `scripts/invoke_case_study_pipeline.ps1` to use Airflow's JSON output with python state parsing rather than `airflow dags state`, ensuring robust state polling across all Airflow 2.x releases.
+
+---
+
+
 ### A. Live AWS Read-Only Inspection (Verified in This Pass)
 
 Live AWS resources were inspected using the authenticated `default` profile (`arn:aws:iam::237657481511:user/yaseen-cli`):

@@ -218,7 +218,7 @@ carematch:
             p = pathlib.Path(tmpdir) / "profiles.yml"
             p.write_text(temp_profiles, encoding="utf-8")
             res = subprocess.run(
-                ["dbt", "--no-version-check", "parse", "--project-dir", str(ROOT / "dbt"), "--profiles-dir", tmpdir],
+                ["dbt", "--no-version-check", "--no-send-anonymous-usage-stats", "parse", "--project-dir", str(ROOT / "dbt"), "--profiles-dir", tmpdir],
                 capture_output=True,
                 text=True,
             )
