@@ -1,10 +1,13 @@
-__pycache__/
+﻿__pycache__/
 *.py[cod]
 .pytest_cache/
 .venv/
 .env
 .env.*
 !.env.example
+
+# Airflow local env file – never commit
+airflow/.env
 
 data/generated/
 data/downloads/
@@ -17,6 +20,11 @@ data/downloads/
 *.tfplan
 crash.log
 
+# Terraform variable overrides – account-specific values must not be committed.
+# The committed .example file shows all available variables.
+terraform.tfvars
+!terraform.tfvars.example
+
 *.pem
 *.p8
 *.key
@@ -28,5 +36,7 @@ dbt/profiles.yml
 dbt/target/
 dbt/logs/
 dbt/dbt_packages/
+# dbt dependency lock written by dbt deps – not committed (reproducible from packages.yml)
+dbt/packages.yml
 
 tmp/

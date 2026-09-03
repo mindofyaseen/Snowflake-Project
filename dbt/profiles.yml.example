@@ -1,11 +1,33 @@
-carematch:
+﻿carematch:
   target: dev
   outputs:
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Password authentication (development only – rotate after every use)
+    # Set SNOWFLAKE_PASSWORD in the current shell session; never hard-code it.
+    # ──────────────────────────────────────────────────────────────────────────
     dev:
       type: snowflake
       account: AGBKFYW-JO98858
       user: YASEEN
       password: "{{ env_var('SNOWFLAKE_PASSWORD') }}"
+      role: CAREMATCH_TRANSFORMER
+      database: CAREMATCH
+      warehouse: CAREMATCH_INGEST_WH
+      schema: ANALYTICS
+      threads: 4
+      client_session_keep_alive: false
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # RSA key-pair authentication (preferred for CI and production)
+    # Generate the key pair with scripts/generate_service_keys.ps1.
+    # Store the private key in .secrets/ (git-ignored) or a secret manager.
+    # ──────────────────────────────────────────────────────────────────────────
+    dev_keypair:
+      type: snowflake
+      account: AGBKFYW-JO98858
+      user: CAREMATCH_TRANSFORMER
+      private_key_path: "{{ env_var('SNOWFLAKE_PRIVATE_KEY_FILE') }}"
       role: CAREMATCH_TRANSFORMER
       database: CAREMATCH
       warehouse: CAREMATCH_INGEST_WH
