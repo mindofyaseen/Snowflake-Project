@@ -175,10 +175,25 @@ were not invoked:
   - Remote manifest verified live with SHA-256 checksums and exact row counts.
 
 - **Downstream Warehouse & SaaS Execution (PENDING CREDENTIALS):**
-  - Full end-to-end incremental execution remains unverified only until Snowflake and dbt complete.
-  - Executing the downstream Snowflake `COPY INTO` and `dbt build` steps requires active Snowflake credentials
-    (`SNOWFLAKE_ACCOUNT`, `SNOWFLAKE_USER`, and `SNOWFLAKE_PASSWORD` or `SNOWFLAKE_PRIVATE_KEY_FILE`).
+  - Snowflake ingestion and the repository transformation relations were subsequently verified live through the authenticated Snowsight session.
+  - A native dbt CLI `dbt build` remains pending CLI authentication
+    (`SNOWFLAKE_PASSWORD`, `SNOWFLAKE_PRIVATE_KEY_FILE`, or an external-browser profile).
   - SaaS synchronization requires `FIVETRAN_APIKEY`/`FIVETRAN_APISECRET` and `HIGHTOUCH_API_KEY`.
+
+### Live Snowflake Ingestion, Transformation, and Idempotency Verification (3 September 2026)
+
+- Before ingestion, `CAREMATCH.RAW.NURSES` contained 5,025 rows and 525 distinct nurse IDs.
+- Running `02_s3_stage_and_raw_load.sql` loaded the newly available S3 files without `FORCE = TRUE`.
+- After ingestion, RAW nurses contained 7,575 rows and 550 distinct nurse IDs.
+- Repeating the nurse COPY left the counts unchanged at 7,575 rows and 550 distinct IDs, proving Snowflake file-load idempotency.
+- Running `03_transform_models.sql` rebuilt the repository transformation relations:
+  - `ANALYTICS.DIM_NURSES`: 550 rows
+  - `ANALYTICS.FCT_SHIFT_PERFORMANCE`: 3,000 rows
+  - `ANALYTICS.MART_MARKETING_EFFICIENCY`: 45 rows
+  - `ANALYTICS.MART_MARKET_SUPPLY_DEMAND`: 225 rows
+  - `ANALYTICS.AUDIENCE_AT_RISK_NURSES`: 248 rows
+- The visible checks in `04_data_quality_tests.sql` returned zero failures for nurse, application, and assignment primary keys; application and assignment relationships; and activation audience policy.
+- These transformations mirror the version-controlled dbt relations, but this pass did not claim a native dbt CLI build because no CLI authentication secret was available.
 
 ---
 

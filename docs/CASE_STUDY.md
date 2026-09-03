@@ -131,7 +131,7 @@ The incremental run simulates subsequent business activity:
 2. 50 new nurse profiles are generated, while existing nurses receive updated shift counts, days since active, and engagement scores.
 3. The batch is uploaded to S3 under a new unique batch prefix: `.../batch_id=carematch_incremental_.../`.
 4. Snowflake executes `COPY INTO` without `FORCE = TRUE`. Snowflake load history detects that earlier files were already loaded and only copies the newly arrived files.
-5. Raw tables now hold cumulative historical snapshots (e.g., 500 baseline + 550 incremental = 1,050 total raw nurse records).
+5. Raw tables hold cumulative historical snapshots. In the verified environment, several earlier demonstrations already existed, so the latest batch changed RAW nurses from 5,025 to 7,575 rows rather than from 500 to 1,050.
 6. dbt staging models deduplicate by business key and pick the latest record.
 7. The active nurse dimension updates from 500 to 550 unique nurses.
 
@@ -447,7 +447,7 @@ After running `invoke_case_study_pipeline.ps1 -Mode incremental -IncrementalNurs
 ```sql
 -- 1. Check raw snapshots increased
 SELECT COUNT(*) AS raw_nurse_snapshots FROM CAREMATCH.RAW.NURSES;
--- Expected: 1,050 (500 initial + 550 incremental)
+-- Verified on 3 September 2026: 7,575 cumulative raw rows
 
 -- 2. Check deduplication picked latest state and unique nurse count grew
 SELECT COUNT(*) AS unique_active_nurses FROM CAREMATCH.STAGING.STG_NURSES;
@@ -488,7 +488,9 @@ HAVING COUNT(*) > 1;
 | Terraform Platform Modules | **Implemented & Verified** | All 5 modules validated (`Success! The configuration is valid`); `fmt -check` clean. |
 | Automated Test Suite | **Implemented & Verified** | 45 unit, contract, and behavioral tests pass cleanly. |
 | Airflow to S3 Incremental Run | **Implemented & Verified** | DAG run `manual__inc_550_20260903T085640Z` succeeded; 550 nurse records and manifest confirmed in S3. |
-| Live Snowflake & dbt Loading | **Implemented (Pending Credentials)** | Scripts and models validated locally; live warehouse execution requires Snowflake credentials. |
+| Live Snowflake Loading | **Implemented & Verified** | RAW nurses changed from 5,025/525 distinct to 7,575/550 distinct. Repeating COPY produced no additional rows. |
+| Transformation Relations | **Implemented & Verified** | Snowflake staging and analytics relations were rebuilt from repository SQL: DIM_NURSES 550, FCT_SHIFT_PERFORMANCE 3,000, and activation audience 248. Six visible quality checks returned zero failures. |
+| Native dbt CLI Build | **Implemented (CLI Authentication Pending)** | Credential-free parse passes, but a native CLI `dbt build` still needs password, private-key, or external-browser authentication. |
 | Slack Bot Channel Membership | **Requires Browser Action** | Account owner must run `/invite @Hightouch` in `#first-project`. |
 | SurveyMonkey OAuth Consent | **Requires Browser Action** | Account owner must approve OAuth screen in browser. |
 | Hightouch Sync Channel Setting | **Requires Browser Action** | Update sync `8379886` destination in UI from `C0BS2TQSS9M` to `C0BSC5B2743`. |

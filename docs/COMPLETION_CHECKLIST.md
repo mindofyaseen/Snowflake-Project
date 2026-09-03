@@ -28,8 +28,9 @@ staffing modern data platform.
 | **Data Contracts** | **Completed & Locally Verified** | `contracts/data_contracts.yml` defines all 11 entities; verified by `test_data_contracts.py`. |
 | **Snowflake Ingestion Scripts** | **Completed & Locally Verified** | `02_s3_stage_and_raw_load.sql` and `07_pipeline_audit.sql` pass dry-run token checks without `FORCE=TRUE`. |
 | **dbt Staging & Analytics Models** | **Completed & Locally Verified** | Credential-free `dbt parse` passes with exit code 0 (0 errors, 0 duplicate sources). |
-| **Snowflake Live Ingestion of Batch** | **Ready but Credentials Required** | Code is ready; requires `SNOWFLAKE_ACCOUNT`, `SNOWFLAKE_USER`, and password/private key. |
-| **dbt Live Build Against Snowflake** | **Ready but Credentials Required** | Models and tests ready; requires live warehouse connection. |
+| **Snowflake Live Ingestion of Batch** | **Completed & Live Verified** | The 3 September incremental files were loaded from S3. RAW nurses changed from 5,025 rows and 525 distinct nurses to 7,575 rows and 550 distinct nurses. A repeat COPY left both counts unchanged. |
+| **Transformation Models in Snowflake** | **Completed & Live Verified** | The repository transformation SQL, which mirrors the dbt relations, rebuilt staging and analytics successfully: DIM_NURSES 550, FCT_SHIFT_PERFORMANCE 3,000, and AUDIENCE_AT_RISK_NURSES 248. Six visible quality checks returned zero failures. |
+| **Native dbt CLI Build Against Snowflake** | **Ready but Credentials Required** | Credential-free dbt parse passes. A native `dbt build` still requires a CLI password, private key, or external-browser profile. |
 | **Fivetran SurveyMonkey Ingestion** | **Browser Action Required** | Connector `prohibited_every` requires web-based OAuth reauthorization (see `docs/BROWSER_ACTIONS.md`). |
 | **Hightouch Reverse ETL to Slack** | **Browser Action Required** | Sync `8379886` requires updating channel to `#first-project` (`C0BSC5B2743`) and `/invite @Hightouch`. |
 | **Marketo, Pendo, Adobe Integrations** | **Intentionally Excluded** | Excluded from the core data platform architecture to maintain a focused demonstration. |
@@ -41,6 +42,6 @@ staffing modern data platform.
 ## 3. Truthful Accounting of Current State
 
 1. **Airflow to S3 is Fully Verified:** The batch `manual__inc_550_20260903T085640Z` landed 550 nurse records and 20,700 total rows under `s3://carematch-data-237657481511-dev/manifests/load_date=2026-09-03/batch_id=manual__inc_550_20260903T085640Z/manifest.json`.
-2. **Snowflake & dbt Execution Pending Credentials:** Snowflake DDL, COPY statements, and dbt models are complete and tested offline. Ingesting the newest S3 batch into Snowflake will take 2 minutes once warehouse credentials are exported.
+2. **Snowflake Execution Verified:** The newest S3 batch is loaded and idempotency is proven live. The equivalent staging and analytics relations are rebuilt in Snowflake. Only a native dbt CLI invocation remains pending CLI authentication.
 3. **Fivetran Historical vs Current:** Fivetran successfully synced 51 rows historically on 31 August 2026. Advancing the current sync timestamp requires completing the SurveyMonkey OAuth web consent.
 4. **Hightouch Slack Delivery:** Sync `8379886` must not be triggered until the destination channel is updated from stale channel `C0BS2TQSS9M` to `#first-project` (`C0BSC5B2743`) in the web UI.
