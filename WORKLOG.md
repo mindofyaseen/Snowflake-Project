@@ -53,8 +53,8 @@ validation checks, and remaining tasks for the CareMatch IntelyCare-inspired dat
     exact production functions.
   - Implemented case-insensitive regex `FORCE\s*=\s*TRUE` and added a test proving the regex catches
     all spacing variants.
-  - Added 12 mocked behavioral tests for Fivetran and Hightouch covering success, remote failure,
-    timeout, transient network errors, missing environment variables, and non-runnable states.
+  - Added 14 mocked behavioral and CLI tests for Fivetran and Hightouch covering success, remote failure,
+    timeout, transient network errors, missing environment variables, CLI exit codes, and non-runnable states.
 
 ### G. Terraform Migration Guide
 - **Issue:** Migration guide used `carematch-dev` AWS profile, omitted IAM associations, and suggested
@@ -77,54 +77,67 @@ validation checks, and remaining tasks for the CareMatch IntelyCare-inspired dat
 
 ## 2. Verification Results
 
-### A. Locally Verified (All Automated Checks Passed)
+### A. Locally Verified in This Pass (All Automated Checks Passed)
+
+All of the following checks were executed directly in the local environment during this pass:
 
 | Check | Command | Result | Details |
 |---|---|---|---|
-| Python Test Suite | `python -m unittest discover -s tests -v` | **PASS** | 43 tests passed in ~17s (14 original + 29 contract/behavioral) |
+| Python Test Suite | `python -m unittest discover -s tests -v` | **PASS** | 45 tests passed in ~11.5s (14 original + 31 contract/behavioral/CLI) |
 | Credential-Free dbt Parse | `dbt --no-version-check parse --project-dir dbt --profiles-dir <mock_dir>` | **PASS** | Exit code 0, 0 compilation errors, no database connection required |
 | dbt Source Uniqueness | `test_no_duplicate_sources_across_project` | **PASS** | 0 duplicate source/table pairs across all project YAMLs |
-| PowerShell Syntax | `[System.Management.Automation.Language.Parser]::ParseFile(...)` | **PASS** | 0 parse errors on `scripts/invoke_case_study_pipeline.ps1` |
+| PowerShell Syntax | `[System.Management.Automation.Language.Parser]::ParseFile(...)` | **PASS** | 0 parse errors across all 7 `.ps1` scripts in `scripts/` |
 | Terraform Formatting | `terraform fmt -check -recursive infra/terraform` | **PASS** | Exit code 0, all HCL files cleanly formatted |
 | Terraform Platform Validation | `terraform -chdir=infra/terraform/platform validate` | **PASS** | `Success! The configuration is valid.` |
 | Git Whitespace Check | `git diff --check` | **PASS** | 0 whitespace or syntax errors |
-| UTF-8 BOM Scan | Byte-level scan on all repository text files | **PASS** | All files verified `Has BOM: False` |
-| Security & State Leak Check | `git status --short` | **PASS** | 0 `.tfstate`, 0 private keys, 0 `.env` files tracked or staged |
+| UTF-8 BOM Scan | Byte-level scan across all 201 repository files | **PASS** | 0 files with BOM (`Has BOM: False` for all files) |
+| Security & State Leak Check | `git ls-files` regex & pattern scan | **PASS** | 0 `.tfstate`, 0 private keys, 0 `.env` files tracked or staged |
 
-### B. CLI Verified Against Live Services (Previous Sessions / Read-Only Inspection)
+---
 
-1. **AWS Infrastructure State (Read-Only CLI):**
-   - Verified via `terraform state list -state="infra/terraform/s3/terraform.tfstate"`:
-     - S3 Bucket: `carematch-data-237657481511-dev`
-     - Security policies, versioning, server-side encryption, ownership controls.
-   - Verified via `terraform state list -state="infra/terraform/ec2-airflow/terraform.tfstate"`:
-     - EC2 Instance ID: `i-02bdd56e8690f35d1`
-     - VPC: `vpc-06f2b35276e5960a6`, Subnet: `subnet-08db96d60aa233607`, SG: `sg-065e44fa631d5df4c`
-     - IAM Role & Profile: `carematch-dev-airflow`
-     - S3 VPC Endpoint: `vpce-06e7663082dc90b92`
-2. **Snowflake Service Identities (From Prior Authenticated CLI Query):**
-   - Service users `FIVETRAN_USER` and `HIGHTOUCH_USER` provisioned with RSA key-pair authentication.
-   - Roles `FIVETRAN_ROLE` and `HIGHTOUCH_ROLE` granted required permissions.
-3. **Fivetran Destination & Landing Data (From Prior CLI Query):**
-   - Destination schema `FIVETRAN_LANDING` contains 51 verified SurveyMonkey survey records loaded by connector `prohibited_every`.
-4. **Git Remote Connectivity (CLI Dry-Run):**
-   - `git push origin main --dry-run` authenticated and verified clean fast-forward to `https://github.com/mindofyaseen/intelycare-snowflake.git`.
+### B. Historical Evidence (Not Reverified in This Pass)
 
-> *Note:* In accordance with instructions, no live modifying cloud operations, live EC2 SSM commands,
-> or live SaaS API triggers were initiated during this correction pass.
+The following items represent historical evidence recorded in prior sessions and documentation.
+**They were NOT reverified against live services in this correction pass**, as live cloud mutations
+and API calls were strictly disabled:
 
-### C. Browser-Only Work Still Remaining
+1. **AWS Infrastructure Live State (Historical):**
+   - S3 Bucket `carematch-data-237657481511-dev` and EC2 instance `i-02bdd56e8690f35d1` are documented
+     in existing local `.tfstate` files. Their live status in AWS was not pinged or modified in this pass.
+2. **Snowflake Service Users and Grants (Historical):**
+   - `FIVETRAN_USER` and `HIGHTOUCH_USER` RSA service accounts documented in `snowflake/sql/05_service_integrations.sql`
+     and prior verification logs were not queried live against Snowflake in this pass.
+3. **Fivetran Ingested Row Counts (Historical):**
+   - The 51 rows recorded in `FIVETRAN_LANDING.SURVEY_MONKEY_CASE_STUDY` were documented from the
+     historical run on 31 August 2026. No live query was run against Snowflake.
 
-The following tasks strictly require human browser interaction and cannot be performed via CLI:
+---
 
-1. **SurveyMonkey OAuth Authorization:**
-   - Authorizing or renewing Fivetran's access token to SurveyMonkey via the SurveyMonkey browser login and OAuth consent screen.
-2. **Hightouch Slack App Installation / Channel Invitation:**
-   - Adding the Hightouch Slack application to private/demo Slack channel `C0BS2TQSS9M` in the Slack desktop/web UI.
-3. **Visual Verification in SaaS Dashboards:**
-   - Viewing the delivered sync table in the Slack channel.
-   - Viewing Fivetran connector sync history graphs in the Fivetran web console.
-   - Inspecting Snowsight worksheets or dashboards in the Snowflake web UI (optional manual review).
+### C. Live Initial & Incremental Runs Status (Unverified in This Pass)
+
+- **The live end-to-end initial (500 nurses) and incremental (550 nurses) pipeline executions
+  remain unverified in this correction pass.**
+- Executing the live runs requires active AWS credentials to dispatch SSM commands to EC2,
+  live Snowflake connectivity for `COPY INTO` and `dbt build`, and live SaaS API keys for Fivetran
+  and Hightouch.
+- In accordance with the prompt constraints, no live services were invoked.
+
+---
+
+### D. SaaS Channel & Browser Configuration Tasks Remaining
+
+1. **Hightouch Slack Channel Configuration:**
+   - **Important Risk:** Hightouch sync `8379886` may still reference the stale Slack channel `C0BS2TQSS9M`.
+   - The intended valid demo Slack channel is `#first-project` with ID `C0BSC5B2743`.
+   - In accordance with the instruction not to alter live SaaS configurations, this mapping must be
+     updated directly in the Hightouch UI by the account owner prior to demo execution.
+   - The Hightouch app must also be invited to `#first-project` (`/invite @Hightouch`).
+2. **SurveyMonkey OAuth Grant:**
+   - Authorizing or renewing Fivetran's access token to SurveyMonkey requires completing the OAuth
+     consent screen in a web browser.
+3. **SaaS Web UI Dashboard Review:**
+   - Visual inspection of the delivered audience in Slack, Fivetran connector sync graphs, and
+     Snowsight query history worksheets.
 
 ---
 

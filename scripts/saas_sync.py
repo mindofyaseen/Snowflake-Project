@@ -21,6 +21,11 @@ def sync_fivetran(
     sleep_fn: Callable[[float], None] = time.sleep,
     request_fn: Optional[Callable[[str, Optional[bytes], Dict[str, str]], Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
+    """Trigger and poll a Fivetran connector sync until completion or timeout.
+
+    Validates that succeeded_at or failed_at timestamps advance past the pre-trigger
+    baseline, rather than relying on a static sync_state string.
+    """
     api_key = api_key or os.environ.get("FIVETRAN_APIKEY")
     api_secret = api_secret or os.environ.get("FIVETRAN_APISECRET")
     connector_id = connector_id or os.environ.get("FIVETRAN_CONNECTOR_ID")
@@ -78,7 +83,7 @@ def sync_fivetran(
             poll_res = http_call(base_uri, None, headers)
             cur_status = poll_res.get("data", {}).get("status", {})
         except Exception as e:
-            # Transient polling error - continue until deadline
+            # Transient polling error - log warning to stderr and continue until deadline
             print(f"[Fivetran] Warning: status poll error (will retry): {e}", file=sys.stderr)
             continue
 
@@ -109,6 +114,11 @@ def sync_hightouch(
     sleep_fn: Callable[[float], None] = time.sleep,
     request_fn: Optional[Callable[[str, Optional[bytes], Dict[str, str]], Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
+    """Trigger and poll a Hightouch sync until completion or timeout.
+
+    Follows only the exact triggered sync request ID and never falls back to
+    unrelated requests.
+    """
     api_key = api_key or os.environ.get("HIGHTOUCH_API_KEY")
     sync_id = sync_id or os.environ.get("HIGHTOUCH_SYNC_ID")
 
@@ -150,7 +160,7 @@ def sync_hightouch(
     start_time = time_fn()
     deadline = start_time + timeout_seconds
 
-    # 2. Poll sync_requests
+    # 2. Poll sync_requests requiring exact match on triggered ID
     while time_fn() < deadline:
         sleep_fn(poll_interval_seconds)
         try:
@@ -183,7 +193,7 @@ def sync_hightouch(
     raise TimeoutError(f"Hightouch sync request {sync_request_id} did not complete within {timeout_seconds}s")
 
 
-def main() -> int:
+def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="Trigger and poll SaaS syncs safely")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -195,14 +205,27 @@ def main() -> int:
     hightouch_p.add_argument("--timeout", type=int, default=1800, help="Timeout in seconds")
     hightouch_p.add_argument("--interval", type=int, default=30, help="Polling interval in seconds")
 
-    args = parser.parse_args()
-    if args.command == "fivetran":
-        res = sync_fivetran(timeout_seconds=args.timeout, poll_interval_seconds=args.interval)
-        print(f"[Fivetran] PASS - {res}")
-    elif args.command == "hightouch":
-        res = sync_hightouch(timeout_seconds=args.timeout, poll_interval_seconds=args.interval)
-        print(f"[Hightouch] PASS - {res}")
-    return 0
+    args = parser.parse_args(argv)
+    try:
+        if args.command == "fivetran":
+            res = sync_fivetran(timeout_seconds=args.timeout, poll_interval_seconds=args.interval)
+            print(f"[Fivetran] PASS - {res}")
+        elif args.command == "hightouch":
+            res = sync_hightouch(timeout_seconds=args.timeout, poll_interval_seconds=args.interval)
+            print(f"[Hightouch] PASS - {res}")
+        return 0
+    except TimeoutError as e:
+        print(f"[{args.command.title()}] TIMEOUT - {e}", file=sys.stderr)
+        return 2
+    except ValueError as e:
+        print(f"[{args.command.title()}] CONFIG ERROR - {e}", file=sys.stderr)
+        return 3
+    except RuntimeError as e:
+        print(f"[{args.command.title()}] FAIL - {e}", file=sys.stderr)
+        return 1
+    except Exception as e:
+        print(f"[{args.command.title()}] UNEXPECTED ERROR - {e}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

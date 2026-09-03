@@ -506,5 +506,28 @@ class SnowflakeRunnerTokenTest(unittest.TestCase):
         self.assertIn("raise RuntimeError", script_source)
 
 
+
+class SaasSyncCliMainTest(unittest.TestCase):
+    def test_main_missing_env_returns_code_3(self) -> None:
+        from scripts.saas_sync import main
+        # Clear env vars for fivetran
+        old_key = os.environ.pop("FIVETRAN_APIKEY", None)
+        try:
+            exit_code = main(["fivetran", "--timeout", "10", "--interval", "1"])
+            self.assertEqual(exit_code, 3)
+        finally:
+            if old_key:
+                os.environ["FIVETRAN_APIKEY"] = old_key
+
+    def test_main_hightouch_missing_env_returns_code_3(self) -> None:
+        from scripts.saas_sync import main
+        old_key = os.environ.pop("HIGHTOUCH_API_KEY", None)
+        try:
+            exit_code = main(["hightouch", "--timeout", "10", "--interval", "1"])
+            self.assertEqual(exit_code, 3)
+        finally:
+            if old_key:
+                os.environ["HIGHTOUCH_API_KEY"] = old_key
+
 if __name__ == "__main__":
     unittest.main()
