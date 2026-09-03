@@ -69,6 +69,10 @@ before and after the S3 load. It uses `COPY_HISTORY` for filename evidence becau
 `METADATA$FILENAME` is a stage-only pseudo column and cannot be selected from a table.
 
 The live two-batch proof, including zero-row COPY rerun and post-deduplication QA, is recorded in [the incremental verification report](docs/INCREMENTAL_VERIFICATION_2026-08-24.md).
+Verified incremental execution reference: Airflow DAG run `manual__inc_550_20260903T085640Z` generated 550 nurse records (20,700 total raw rows) landed in `s3://carematch-data-237657481511-dev/manifests/load_date=2026-09-03/batch_id=manual__inc_550_20260903T085640Z/manifest.json`.
+
+For interactive Snowflake query demonstration, see [Snowflake demo queries](docs/SNOWFLAKE_DEMO_QUERIES.sql).
+For account owner SaaS authorization and Slack channel alignment, see [browser actions guide](docs/BROWSER_ACTIONS.md).
 
 ## Repository layout
 

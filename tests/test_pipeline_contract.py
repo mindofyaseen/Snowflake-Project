@@ -529,5 +529,49 @@ class SaasSyncCliMainTest(unittest.TestCase):
             if old_key:
                 os.environ["HIGHTOUCH_API_KEY"] = old_key
 
+class ProductionReadinessAndOrchestratorTest(unittest.TestCase):
+    def test_run_snowflake_sql_dry_run_executes_without_credentials(self) -> None:
+        import sys
+        cmd = [
+            sys.executable,
+            str(ROOT / "scripts/run_snowflake_sql.py"),
+            "--dry-run",
+            "--bucket", "test-bucket",
+            str(ROOT / "snowflake/sql/02_s3_stage_and_raw_load.sql"),
+            str(ROOT / "snowflake/sql/06_incremental_demo.sql"),
+        ]
+        res = subprocess.run(cmd, capture_output=True, text=True)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("[Dry-run] PASS", res.stdout)
+
+    def test_orchestrator_declares_dry_run_and_batch_selection(self) -> None:
+        ps_source = (ROOT / "scripts/invoke_case_study_pipeline.ps1").read_text(encoding="utf-8")
+        self.assertIn("[switch]$DryRun", ps_source)
+        self.assertIn("[string]$ExistingBatchId", ps_source)
+        self.assertIn("[switch]$SkipAirflow", ps_source)
+        self.assertIn("[switch]$SkipSnowflake", ps_source)
+
+    def test_orchestrator_cleans_temporary_files_in_finally_block(self) -> None:
+        ps_source = (ROOT / "scripts/invoke_case_study_pipeline.ps1").read_text(encoding="utf-8")
+        self.assertIn("try {", ps_source)
+        self.assertIn("finally {", ps_source)
+        self.assertIn("Remove-Item $tempParamFile -Force", ps_source)
+
+    def test_snowflake_demo_queries_contains_all_verification_metrics(self) -> None:
+        demo_sql = (ROOT / "docs/SNOWFLAKE_DEMO_QUERIES.sql").read_text(encoding="utf-8")
+        self.assertIn("RAW.NURSES", demo_sql)
+        self.assertIn("STAGING.STG_NURSES", demo_sql)
+        self.assertIn("ANALYTICS.DIM_NURSES", demo_sql)
+        self.assertIn("LOAD_HISTORY", demo_sql)
+        self.assertIn("AUDIENCE_AT_RISK_NURSES", demo_sql)
+
+    def test_browser_actions_guide_details_fivetran_and_hightouch_steps(self) -> None:
+        browser_guide = (ROOT / "docs/BROWSER_ACTIONS.md").read_text(encoding="utf-8")
+        self.assertIn("prohibited_every", browser_guide)
+        self.assertIn("8379886", browser_guide)
+        self.assertIn("C0BSC5B2743", browser_guide)
+        self.assertIn("/invite @Hightouch", browser_guide)
+
+
 if __name__ == "__main__":
     unittest.main()

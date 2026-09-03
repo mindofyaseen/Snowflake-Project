@@ -53,6 +53,11 @@ Do not put any of these values in a committed file or Terraform variable file.
 | `-SkipDbt` | off | Skip dbt build |
 | `-SaasTimeoutSeconds` | `1800` | Maximum seconds to poll SaaS syncs |
 | `-SaasPollIntervalSeconds` | `30` | Interval in seconds between SaaS status polls |
+| `-DryRun` | off | Validate SQL and orchestrator steps without remote calls |
+| `-ExistingBatchId` | none | Ingest an existing S3 batch without re-triggering Airflow |
+| `-SkipAirflow` | off | Skip Airflow execution |
+| `-SkipSnowflake` | off | Skip Snowflake ingestion and dbt build |
+| `-SkipInfrastructure` | off | Skip Terraform platform output checks |
 
 ## One-time account authorization
 
@@ -112,6 +117,15 @@ state, pass resource identifiers explicitly:
 .\scripts\invoke_case_study_pipeline.ps1 -Mode verify `
   -S3BucketName carematch-data-237657481511-dev
 ```
+
+Alternatively, run in dry-run mode without active Snowflake credentials:
+```powershell
+.\scripts\invoke_case_study_pipeline.ps1 -Mode verify -DryRun `
+  -S3BucketName carematch-data-237657481511-dev
+```
+
+For manual interactive verification in Snowsight, see `docs/SNOWFLAKE_DEMO_QUERIES.sql`.
+For SaaS browser reauthorization and Slack channel alignment, see `docs/BROWSER_ACTIONS.md`.
 
 The `verify` mode is **read-only**. It executes `snowflake/sql/06_incremental_demo.sql`
 which selects from RAW and STAGING/ANALYTICS views. It makes no writes to any

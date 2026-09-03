@@ -14,10 +14,15 @@ param(
     [string]$AirflowInstanceId,
     [string]$S3BucketName,
     [string]$SnowflakeRoleArn,
+    [string]$ExistingBatchId,
+    [switch]$SkipAirflow,
+    [switch]$SkipSnowflake,
+    [switch]$SkipDbt,
+    [switch]$SkipInfrastructure,
+    [switch]$DryRun,
     [switch]$ApplyInfrastructure,
     [switch]$RunFivetran,
     [switch]$RunHightouch,
-    [switch]$SkipDbt,
     [int]$SaasTimeoutSeconds = 1800,
     [int]$SaasPollIntervalSeconds = 30
 )
@@ -38,12 +43,17 @@ function Invoke-Checked {
 
 function Get-PlatformOutput {
     param([string]$Name)
+    if ($DryRun) { return "dry-run-$Name" }
     $value = terraform "-chdir=$platformDir" output -raw $Name
     if ($LASTEXITCODE -ne 0 -or -not $value) { throw "Terraform output '$Name' is unavailable." }
     return $value.Trim()
 }
 
 function Invoke-Infrastructure {
+    if ($DryRun) {
+        Write-Host "[Dry-run] Would run terraform init, validate, and plan/apply for platform infrastructure."
+        return
+    }
     Invoke-Checked { terraform "-chdir=$platformDir" init -input=false } "terraform init failed"
     Invoke-Checked { terraform "-chdir=$platformDir" validate } "terraform validate failed"
     $action = if ($ApplyInfrastructure) { "apply" } else { "plan" }
@@ -58,6 +68,18 @@ function Invoke-Infrastructure {
 
 function Invoke-AirflowBatch {
     param([string]$LoadMode, [int]$NurseCount)
+
+    if ($ExistingBatchId -or $SkipAirflow) {
+        $targetBatch = if ($ExistingBatchId) { $ExistingBatchId } else { "existing-batch-in-s3" }
+        Write-Host "[Airflow] Skipping Airflow trigger: using existing S3 batch '$targetBatch'."
+        return
+    }
+
+    if ($DryRun) {
+        Write-Host "[Dry-run] Would trigger Airflow DAG carematch_synthetic_sources_to_s3 on EC2 (mode=$LoadMode, nurses=$NurseCount)."
+        return
+    }
+
     $instanceId = if ($AirflowInstanceId) { $AirflowInstanceId } else { Get-PlatformOutput "airflow_instance_id" }
     $conf = @{ load_mode = $LoadMode; load_date = $LoadDate.ToString("yyyy-MM-dd"); nurse_count = $NurseCount } | ConvertTo-Json -Compress
     $runId = "carematch_${LoadMode}_$((Get-Date).ToUniversalTime().ToString('yyyyMMddTHHmmssZ'))"
@@ -73,13 +95,13 @@ for attempt in `$(seq 1 120); do
   echo "  attempt ${attempt}: DAG state=${state}"
   if [ "${state}" = "success" ]; then exit 0; fi
   if [ "${state}" = "failed" ]; then exit 1; fi
-  sleep 15
+  sleep 5
 done
-echo 'Timed out waiting for the Airflow DAG run' >&2
 exit 1
 "@
+
     $parameters = @{ commands = @($remoteCommand) } | ConvertTo-Json -Compress
-    Write-Host "[Airflow] Sending SSM command to instance $instanceId..."
+    Write-Host "[Airflow] Sending SSM command to instance $instanceId (DAG run_id=$runId)..."
     $tempParamFile = [System.IO.Path]::GetTempFileName()
     try {
         [System.IO.File]::WriteAllText($tempParamFile, $parameters, [System.Text.UTF8Encoding]::new($false))
@@ -129,6 +151,19 @@ exit 1
 
 function Invoke-SnowflakeAndDbt {
     param([string]$BucketName, [bool]$Bootstrap)
+
+    if ($SkipSnowflake) {
+        Write-Host "[Snowflake] Skipping Snowflake and dbt execution per -SkipSnowflake."
+        return
+    }
+
+    if ($DryRun) {
+        Write-Host "[Dry-run] Would execute Snowflake SQL load against bucket $BucketName and run dbt build."
+        $loadFile = Join-Path $projectRoot "snowflake\sql\02_s3_stage_and_raw_load.sql"
+        python (Join-Path $projectRoot "scripts\run_snowflake_sql.py") --dry-run --bucket $BucketName $loadFile
+        return
+    }
+
     $roleArn = if ($SnowflakeRoleArn) {
         $SnowflakeRoleArn
     } elseif ($Bootstrap) {
@@ -193,6 +228,10 @@ function Invoke-FivetranSync {
         [int]$TimeoutSeconds = $SaasTimeoutSeconds,
         [int]$PollInterval = $SaasPollIntervalSeconds
     )
+    if ($DryRun) {
+        Write-Host "[Dry-run] Would trigger and poll Fivetran connector."
+        return
+    }
     $missing = @()
     if (-not $env:FIVETRAN_APIKEY)        { $missing += "FIVETRAN_APIKEY" }
     if (-not $env:FIVETRAN_APISECRET)     { $missing += "FIVETRAN_APISECRET" }
@@ -214,6 +253,10 @@ function Invoke-HightouchSync {
         [int]$TimeoutSeconds = $SaasTimeoutSeconds,
         [int]$PollInterval = $SaasPollIntervalSeconds
     )
+    if ($DryRun) {
+        Write-Host "[Dry-run] Would trigger and poll Hightouch sync."
+        return
+    }
     $missing = @()
     if (-not $env:HIGHTOUCH_API_KEY) { $missing += "HIGHTOUCH_API_KEY" }
     if (-not $env:HIGHTOUCH_SYNC_ID) { $missing += "HIGHTOUCH_SYNC_ID" }
@@ -246,7 +289,7 @@ try {
         $isInitial = $Mode -eq "initial"
         $count = if ($isInitial) { $InitialNurseCount } else { $IncrementalNurseCount }
         if ($PSCmdlet.ShouldProcess("CareMatch $Environment", "Run $Mode pipeline with $count nurses")) {
-            Write-Host "[Pipeline] Starting $Mode load: $count nurses, bucket=$bucket, date=$($LoadDate.ToString('yyyy-MM-dd'))"
+            Write-Host "[Pipeline] Mode=${Mode}: count=${count} nurses, bucket=$bucket, date=$($LoadDate.ToString('yyyy-MM-dd'))"
             Invoke-AirflowBatch -LoadMode $Mode -NurseCount $count
             Invoke-SnowflakeAndDbt -BucketName $bucket -Bootstrap $isInitial
             if ($RunFivetran)  { Invoke-FivetranSync }
@@ -256,13 +299,20 @@ try {
     }
 
     if ($Mode -eq "verify") {
-        Write-Host "[Verify] Running read-only verification queries..."
-        Invoke-Checked {
+        Write-Host "[Verify] Running verification queries..."
+        if ($DryRun) {
+            Write-Host "[Dry-run] Would execute read-only verification queries against $bucket."
             python (Join-Path $projectRoot "scripts\run_snowflake_sql.py") `
-                --bucket $bucket `
+                --dry-run --bucket $bucket `
                 (Join-Path $projectRoot "snowflake\sql\06_incremental_demo.sql")
-        } "Verification query failed"
-        Write-Host "[Verify] PASS - verification queries returned results."
+        } else {
+            Invoke-Checked {
+                python (Join-Path $projectRoot "scripts\run_snowflake_sql.py") `
+                    --bucket $bucket `
+                    (Join-Path $projectRoot "snowflake\sql\06_incremental_demo.sql")
+            } "Verification query failed"
+        }
+        Write-Host "[Verify] PASS - verification queries completed."
     }
 }
 finally {

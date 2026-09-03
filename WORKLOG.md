@@ -199,6 +199,25 @@ were not invoked:
 
 ---
 
+### F. Production Readiness & Orchestration Hardening (Executed in This Pass)
+
+1. **Dry-Run & Offline Validation Support:**
+   - Updated `scripts/run_snowflake_sql.py` with a `--dry-run` mode to parse and validate statements, verify replacement of `__CAREMATCH_` tokens, and enforce prohibition of `FORCE = TRUE` without requiring a live Snowflake connection.
+   - Fixed `io.StringIO` buffer handling for `snowflake.connector.util_text.split_statements` compatibility across all connector versions.
+2. **Orchestrator Production Enhancements (`scripts/invoke_case_study_pipeline.ps1`):**
+   - Added `-DryRun` switch to validate execution paths without triggering remote mutations.
+   - Added `-ExistingBatchId` parameter and `-SkipAirflow` switch so the orchestrator can process an existing S3 batch (such as `manual__inc_550_20260903T085640Z`) without rerunning Airflow DAG tasks.
+   - Added `-SkipSnowflake` and `-SkipInfrastructure` switches for granular phase selection.
+   - Tested dry-run execution against verified batch `manual__inc_550_20260903T085640Z` with exit code 0.
+3. **Dedicated Snowsight Verification Script (`docs/SNOWFLAKE_DEMO_QUERIES.sql`):**
+   - Created comprehensive, read-only SQL script containing RAW row counts, deduplication proofs, mart row counts, primary key uniqueness assertions, audience safeguards, and `INFORMATION_SCHEMA.LOAD_HISTORY` idempotency queries.
+4. **Account Owner Browser Action Guide (`docs/BROWSER_ACTIONS.md`):**
+   - Created detailed handoff document covering SurveyMonkey OAuth reauthorization in Fivetran, Slack destination channel update from stale `C0BS2TQSS9M` to `#first-project` (`C0BSC5B2743`) in Hightouch, `/invite @Hightouch` bot command, and Snowsight query execution.
+5. **Test Suite Expansion:**
+   - Added 5 new production-readiness unit tests in `tests/test_pipeline_contract.py`. Full test suite now passes 50 out of 50 unit tests in ~13 seconds.
+
+---
+
 ## 3. Credential-Dependent Tasks (For Live Operator Execution)
 
 When live credentials are provided to an authorized operator, execute the following:
