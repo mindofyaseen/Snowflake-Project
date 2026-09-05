@@ -197,20 +197,17 @@ were not invoked:
 
 ---
 
-### E. SaaS Channel & Browser Configuration Tasks Remaining
+### E. SaaS Channel Verification
 
-1. **Hightouch Slack Channel Configuration:**
-   - **Important Risk:** Hightouch sync `8379886` may still reference the stale Slack channel `C0BS2TQSS9M`.
-   - The intended valid demo Slack channel is `#first-project` with ID `C0BSC5B2743`.
-   - In accordance with the instruction not to alter live SaaS configurations, this mapping must be
-     updated directly in the Hightouch UI by the account owner prior to demo execution.
-   - The Hightouch app must also be invited to `#first-project` (`/invite @Hightouch`).
-2. **SurveyMonkey OAuth Grant:**
-   - Authorizing or renewing Fivetran's access token to SurveyMonkey requires completing the OAuth
-     consent screen in a web browser.
-3. **SaaS Web UI Dashboard Review:**
-   - Visual inspection of the delivered audience in Slack, Fivetran connector sync graphs, and
-     Snowsight query history worksheets.
+1. **Hightouch to Slack (VERIFIED LIVE on 3 September 2026):**
+   - Hightouch sync `8379886` now targets `#first-project` with channel ID `C0BSC5B2743`.
+   - The Hightouch Slack destination was reauthorized and reported `Authorized` and `Healthy`.
+   - The Hightouch app was added to `#first-project`.
+   - The manual run completed in under one minute with 248 rows queried, 248 successful operations, and 0 rejected operations.
+   - Slack was inspected directly and showed the delivered nurse audience table messages.
+2. **Fivetran SurveyMonkey (CURRENT LOGIN REQUIRED):**
+   - Connector `prohibited_every` was observed as enabled and active, with successful runs on 3 September 2026; the latest observed run finished at 1:26:56 PM and loaded 7 rows.
+   - A fresh browser session on 5 September 2026 redirected to the Fivetran sign-in page, so a new manual run and current Snowflake landing count could not be verified without account login.
 
 ---
 

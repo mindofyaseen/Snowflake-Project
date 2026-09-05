@@ -281,6 +281,7 @@ dbt and Snowflake enforce data contract rules:
   3. Polls until `succeeded_at` advances past baseline.
   4. Aborts if `failed_at` advances or if connector is paused.
 - **Historical Baseline:** Initial sync loaded 51 rows across 10 tables (`RESPONSE_HISTORY`, `QUESTION_HISTORY`, etc.).
+- **Latest Observed Live State:** The connector was enabled and active on 3 September 2026. Three successful runs were visible that day, including a 1:26:32 PM to 1:26:56 PM run that loaded 7 rows. A new 5 September verification requires signing back in to Fivetran.
 
 ---
 
@@ -300,8 +301,8 @@ dbt and Snowflake enforce data contract rules:
 ## 17. Slack Delivery
 
 - **Target Channel:** `#first-project` (ID: `C0BSC5B2743`).
-- **Stale Channel Notice:** Sync `8379886` was previously configured with channel `C0BS2TQSS9M`, which produced a `not_in_channel` error because the bot was not a member.
-- **Owner Action:** In the Hightouch UI, verify or update the destination channel to `#first-project` (`C0BSC5B2743`) and invite the bot using `/invite @Hightouch`.
+- **Resolved Incident:** Sync `8379886` was previously configured with channel `C0BS2TQSS9M`, which produced a `not_in_channel` error. The Slack destination was reauthorized, the Hightouch app was added to `#first-project`, and the sync was changed to channel `C0BSC5B2743`.
+- **Live Result:** The 3 September 2026 manual run completed in under one minute with 248 rows queried, 248 successful operations, and 0 rejected operations. Delivered nurse audience messages were verified directly in Slack.
 - **Data Payload:** Formatted tabular messages delivering nurse name, specialty, days inactive, and churn risk score to care coordinators.
 
 ---
@@ -467,8 +468,8 @@ HAVING COUNT(*) > 1;
 
 1. [ ] Log in to SurveyMonkey and verify survey `CareMatch Healthcare Staffing Experience 2026`.
 2. [ ] In Fivetran console, open connector `prohibited_every` and confirm SurveyMonkey connection status shows `CONNECTED`.
-3. [ ] Open Slack workspace, navigate to `#first-project` (`C0BSC5B2743`), and run `/invite @Hightouch`.
-4. [ ] In Hightouch console, open sync `8379886`, verify destination targets `#first-project`, and test the destination health check.
+3. [x] Open Slack workspace and confirm the Hightouch app is present in `#first-project` (`C0BSC5B2743`).
+4. [x] In Hightouch, confirm sync `8379886` targets `#first-project`; run it and verify 248 successful operations with 0 rejected.
 5. [ ] Open Snowflake Snowsight, select database `CAREMATCH`, and visually inspect the tables in `RAW`, `STAGING`, and `ANALYTICS`.
 
 ---
@@ -491,7 +492,7 @@ HAVING COUNT(*) > 1;
 | Live Snowflake Loading | **Implemented & Verified** | RAW nurses changed from 5,025/525 distinct to 7,575/550 distinct. Repeating COPY produced no additional rows. |
 | Transformation Relations | **Implemented & Verified** | Snowflake staging and analytics relations were rebuilt from repository SQL: DIM_NURSES 550, FCT_SHIFT_PERFORMANCE 3,000, and activation audience 248. Six visible quality checks returned zero failures. |
 | Native dbt CLI Build | **Implemented (CLI Authentication Pending)** | Credential-free parse passes, but a native CLI `dbt build` still needs password, private-key, or external-browser authentication. |
-| Slack Bot Channel Membership | **Requires Browser Action** | Account owner must run `/invite @Hightouch` in `#first-project`. |
+| Slack Bot Channel Membership | **Implemented & Verified** | Hightouch app is present in `#first-project`; delivered table messages were inspected directly. |
 | SurveyMonkey OAuth Consent | **Requires Browser Action** | Account owner must approve OAuth screen in browser. |
-| Hightouch Sync Channel Setting | **Requires Browser Action** | Update sync `8379886` destination in UI from `C0BS2TQSS9M` to `C0BSC5B2743`. |
+| Hightouch Sync Channel Setting | **Implemented & Verified** | Sync `8379886` targets `C0BSC5B2743`; live run completed with 248 successful and 0 rejected operations. |
 | Pendo, Marketo, Salesforce, Ads | **Excluded from Scope** | Intentionally excluded from active demonstration; documented as non-live connectors. |
