@@ -205,9 +205,9 @@ were not invoked:
    - The Hightouch app was added to `#first-project`.
    - The manual run completed in under one minute with 248 rows queried, 248 successful operations, and 0 rejected operations.
    - Slack was inspected directly and showed the delivered nurse audience table messages.
-2. **Fivetran SurveyMonkey (CURRENT LOGIN REQUIRED):**
+2. **Fivetran SurveyMonkey (LIVE VERIFIED 5 SEPTEMBER 2026):**
    - Connector `prohibited_every` was observed as enabled and active, with successful runs on 3 September 2026; the latest observed run finished at 1:26:56 PM and loaded 7 rows.
-   - A fresh browser session on 5 September 2026 redirected to the Fivetran sign-in page, so a new manual run and current Snowflake landing count could not be verified without account login.
+   - After account login on 5 September 2026, connector `prohibited_every` was verified enabled and active. Its three latest scheduled incremental runs succeeded and each loaded 7 rows; the newest visible run completed in 21 seconds at 1:26:53 PM.
 
 ---
 

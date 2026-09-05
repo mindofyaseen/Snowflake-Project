@@ -281,7 +281,7 @@ dbt and Snowflake enforce data contract rules:
   3. Polls until `succeeded_at` advances past baseline.
   4. Aborts if `failed_at` advances or if connector is paused.
 - **Historical Baseline:** Initial sync loaded 51 rows across 10 tables (`RESPONSE_HISTORY`, `QUESTION_HISTORY`, etc.).
-- **Latest Observed Live State:** The connector was enabled and active on 3 September 2026. Three successful runs were visible that day, including a 1:26:32 PM to 1:26:56 PM run that loaded 7 rows. A new 5 September verification requires signing back in to Fivetran.
+- **Latest Observed Live State:** The connector was enabled and active on 5 September 2026. Its three latest scheduled incremental runs all succeeded and loaded 7 rows each. The newest visible run completed from 1:26:31 PM to 1:26:53 PM in 21 seconds.
 
 ---
 
