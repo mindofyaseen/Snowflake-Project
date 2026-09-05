@@ -281,7 +281,8 @@ dbt and Snowflake enforce data contract rules:
   3. Polls until `succeeded_at` advances past baseline.
   4. Aborts if `failed_at` advances or if connector is paused.
 - **Historical Baseline:** Initial sync loaded 51 rows across 10 tables (`RESPONSE_HISTORY`, `QUESTION_HISTORY`, etc.).
-- **Latest Observed Live State:** The connector was enabled and active on 5 September 2026. Its three latest scheduled incremental runs all succeeded and loaded 7 rows each. The newest visible run completed from 1:26:31 PM to 1:26:53 PM in 21 seconds.
+- **Latest Observed Live State:** The connector was enabled and active on 5 September 2026. Its three latest scheduled incremental runs all succeeded and loaded 7 rows each. The newest visible run completed from 1:26:31 PM to 1:26:53 PM in 21 seconds. A subsequent Snowflake query returned 58 rows across the 10 SurveyMonkey landing tables, reconciling exactly to the 51-row historical baseline plus the 7-row increment.
+- **Verified Landing Counts:** `COLLECTOR` 1, `QUESTION_HEADING_HISTORY` 3, `QUESTION_HISTORY` 3, `QUESTION_OPTION_HISTORY` 15, `RESPONSE_ANSWER` 6, `RESPONSE_HISTORY` 2, `RESPONSE_PAGE` 2, `SURVEY_CATEGORY` 22, `SURVEY_HISTORY` 3, and `SURVEY_PAGE_HISTORY` 1.
 
 ---
 

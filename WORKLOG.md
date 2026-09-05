@@ -208,6 +208,7 @@ were not invoked:
 2. **Fivetran SurveyMonkey (LIVE VERIFIED 5 SEPTEMBER 2026):**
    - Connector `prohibited_every` was observed as enabled and active, with successful runs on 3 September 2026; the latest observed run finished at 1:26:56 PM and loaded 7 rows.
    - After account login on 5 September 2026, connector `prohibited_every` was verified enabled and active. Its three latest scheduled incremental runs succeeded and each loaded 7 rows; the newest visible run completed in 21 seconds at 1:26:53 PM.
+   - A live Snowflake landing query then returned 58 total rows across 10 SurveyMonkey tables: 1 collector, 3 question heading history, 3 question history, 15 question option history, 6 response answer, 2 response history, 2 response page, 22 survey category, 3 survey history, and 1 survey page history. The result reconciles exactly to the prior 51-row baseline plus the 7-row incremental sync.
 
 ---
 
